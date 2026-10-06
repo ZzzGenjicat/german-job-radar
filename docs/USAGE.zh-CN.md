@@ -17,3 +17,6 @@
 不配置 AI 也能搜索、扩展和导出。CV 上传只在本机提取，主动点 AI 分析才向 OpenAI 发送对应文字；需自己的 API Key，可能收费，ChatGPT 订阅不含此密钥。“不适合我”分析生成规则，确认后才影响类似岗位，可停用或删除。没有收藏、申请清单或 Google 表格同步。
 
 密钥保存在 Windows 凭据管理器。删除 CV 会删原文件及提取文字，无法撤回已发给 API 的文字。开源发布使用 release builder，不要上传 data/、简历、日志或个人 CSV。
+# 无需 Python 的 Windows 下载版
+
+普通用户推荐下载 [Windows ZIP](https://github.com/ZzzGenjicat/german-job-radar/releases/latest/download/GermanJobRadar-Windows-x64.zip)，解压后双击 EXE。详见 [下载版说明](WINDOWS.md)。以下 Python 安装步骤只适用于源码版。

@@ -1,0 +1,30 @@
+name: Windows download
+on:
+  release:
+    types: [published]
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.13.16'
+      - run: python -m pip install -r requirements-dev.txt -r requirements-build.txt
+      - run: python -m unittest discover -s tests -v
+        env:
+          PYTHONUTF8: '1'
+      - run: node --check web/app.js
+      - run: python tools/build_exe.py
+      - run: python tools/smoke_exe.py dist/GermanJobRadar-Windows-x64.exe
+        env:
+          PYTHONUTF8: '1'
+      - name: Publish verified downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$env:RELEASE_TAG" dist/GermanJobRadar-Windows-x64.exe dist/GermanJobRadar-Windows-x64.zip dist/THIRD_PARTY_NOTICES.txt dist/SHA256SUMS.txt --repo "$env:GITHUB_REPOSITORY"

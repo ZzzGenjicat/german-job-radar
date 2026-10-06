@@ -4,6 +4,12 @@ A local Windows dashboard for German job searches. Use your own keywords, inspec
 
 [中文说明](docs/USAGE.zh-CN.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [MIT license](LICENSE)
 
+## Download for Windows — no Python required
+
+Download [GermanJobRadar-Windows-x64.zip](https://github.com/ZzzGenjicat/german-job-radar/releases/latest/download/GermanJobRadar-Windows-x64.zip), extract it and double-click the EXE. Or download the [standalone EXE](https://github.com/ZzzGenjicat/german-job-radar/releases/latest/download/GermanJobRadar-Windows-x64.exe). Windows 10/11 x64; no administrator or Python installation needed. See [Windows instructions](docs/WINDOWS.md), license notices and SHA256 checksums in [Releases](https://github.com/ZzzGenjicat/german-job-radar/releases).
+
+The bundled app saves data in `%LOCALAPPDATA%\GermanJobRadar`, independent of the EXE's location. Exit in the dashboard before replacing the EXE; history stays. Optional 18:00 scheduling can be enabled/disabled in search settings. Keep the EXE at a fixed location, or re-enable scheduling after moving it. The executable is currently unsigned.
+
 ## Features
 
 - Regular employment, internships and/or working-student roles. Full-time is a separate option; turn it off to accept part-time. Junior is allowed unless you add it to exclusions.
@@ -15,7 +21,7 @@ A local Windows dashboard for German job searches. Use your own keywords, inspec
 - Links open in the OS default browser. No automatic applications, bookmarks, Google Drive or spreadsheet sync.
 - Optional local PDF/DOCX extraction and OpenAI keyword drafting/feedback analysis. AI drafts require your confirmation, your own API key and may incur charges. A ChatGPT subscription is not an API key.
 
-## Install
+## Install from source (developers)
 
 Requirements: Windows 10/11, Python 3.11+ with venv/pip, network access for installation and searches. Tested with Python 3.12. Install from [python.org](https://www.python.org/downloads/windows/).
 
@@ -69,5 +75,7 @@ node --check web/app.js
 ```
 
 Offline tests use synthetic fixtures. CI is configured for Windows/Python 3.11–3.13. The builder copies an explicit allowlist, rejects symlinks and checks obvious secrets/machine paths; review the output before uploading because automated checks cannot detect every secret.
+
+To build the Windows executable, install `requirements-build.txt` in a clean Windows/Python x64 environment, then run `python tools/build_exe.py` and `python tools/smoke_exe.py dist/GermanJobRadar-Windows-x64.exe` (smoke also requires `requirements-dev.txt`). Publishing a GitHub Release triggers the Windows build, offline tests, frozen runtime smoke and asset upload. The spec explicitly bundles web assets, DOCX templates and tzdata; no `data/`, CVs, local settings or keys are bundled.
 
 Implementation: standard-library HTTP server, SQLite snapshots/alias deduplication, lxml parsers, static JS/CSS. Optional AI uses structured Responses API output. Windows-first: native credentials, launch and scheduling are not implemented for Linux/macOS.

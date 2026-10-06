@@ -28,12 +28,16 @@ from radar.cv import save_and_extract_cv
 from radar.ai import OpenAIClient
 from radar.export_csv import build_csv
 from radar.presentation import numbered_jobs
+from radar.runtime import FROZEN, INSTANCE_ID, app_port, credential_target
 
-PORT=48218
+PORT=app_port(os.environ)
 ORIGIN=f'http://127.0.0.1:{PORT}'
 APP_ID='german-job-radar-local-v1'
 TOKEN=secrets.token_urlsafe(32)
 STOP=threading.Event()
+WORKER_GUARD=threading.Lock()
+ACTIVE_WORKERS=set()
+CREDENTIAL_TARGET=credential_target(INSTANCE_ID,FROZEN)
 
 
 class LocalHTTPServer(ThreadingHTTPServer):
@@ -78,7 +82,22 @@ def scan_background(kind):
         try:run_scan(kind)
         except AlreadyRunning:pass
         except Exception:logging.exception('scan failed')
-    threading.Thread(target=work,daemon=True).start()
+        finally:
+            with WORKER_GUARD:ACTIVE_WORKERS.discard(threading.current_thread())
+    with WORKER_GUARD:
+        if STOP.is_set():return False
+        worker=threading.Thread(target=work,daemon=True)
+        ACTIVE_WORKERS.add(worker)
+        worker.start()
+    return True
+
+
+def begin_shutdown():
+    with WORKER_GUARD:
+        if ACTIVE_WORKERS:raise ValueError('正在扫描，请等扫描完成后退出')
+        try:
+            with ScanLock():STOP.set()
+        except AlreadyRunning:raise ValueError('正在扫描，请等扫描完成后退出') from None
 
 
 def automatic_loop():
@@ -104,15 +123,18 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.valid_host():return self.respond(403,{'error':'仅允许本机访问'})
         path=urlsplit(self.path).path
-        if path=='/api/health':return self.respond(200,{'app':APP_ID})
+        if path=='/api/health':return self.respond(200,{'app':APP_ID,'instance':INSTANCE_ID,'pid':os.getpid()})
+        if path=='/third-party-notices.txt' and FROZEN:
+            return self.respond(200,(ROOT/'THIRD_PARTY_NOTICES.txt').read_bytes(),'text/plain; charset=utf-8')
         if path=='/api/state':
             store=Store(DB);store.ensure_v2_configuration(KEYWORDS,SOURCES)
             value=store.view(now_utc());value.pop('sync_queue',None)
             value['expansion']=store.expansion_settings()
             if value.get('snapshot'):value['snapshot']['jobs']=numbered_jobs(value['snapshot'].get('jobs',[]))
-            value.update(token=TOKEN,sources=store.source_settings(),keywords=store.keywords(),profile=store.profile(),learned_rules=store.learned_rules(),openai=CredentialStore().status('GermanJobRadar/OpenAI'),cv=store.current_cv())
+            value.update(token=TOKEN,sources=store.source_settings(),keywords=store.keywords(),profile=store.profile(),learned_rules=store.learned_rules(),openai=CredentialStore().status(CREDENTIAL_TARGET),cv=store.current_cv())
             config=DATA/'schedule.json'
             value['schedule']=json.loads(config.read_text(encoding='utf-8-sig')) if config.exists() else {'installed':False}
+            value['desktop_packaged']=FROZEN
             return self.respond(200,value)
         files={'/':('index.html','text/html; charset=utf-8'),'/app.js':('app.js','text/javascript; charset=utf-8'),'/style.css':('style.css','text/css; charset=utf-8'),'/favicon.svg':('favicon.svg','image/svg+xml')}
         if path not in files:return self.respond(404,{'error':'页面不存在'})
@@ -141,8 +163,18 @@ class Handler(BaseHTTPRequestHandler):
                     if previous.parent==(DATA/'cv').resolve() and previous.exists():previous.unlink()
                 return self.respond(200,store.current_cv())
             data=json.loads(raw) if raw else {}
+            if self.path=='/api/desktop/schedule':
+                if not FROZEN or set(data)!= {'enabled'} or type(data['enabled']) is not bool:raise ValueError('此操作只用于 Windows 下载版')
+                schedule_desktop(data['enabled'])
+                return self.respond(200,{'message':'18点自动扫描已启用' if data['enabled'] else '自动扫描已停用；历史保留'})
+            if self.path=='/api/desktop/quit':
+                if not FROZEN or data:raise ValueError('此操作只用于 Windows 下载版')
+                begin_shutdown()
+                self.respond(200,{'message':'应用已退出，可关闭这个页面'})
+                threading.Thread(target=self.server.shutdown,daemon=True).start()
+                return
             if self.path=='/api/scan':
-                scan_background('manual')
+                if not scan_background('manual'):raise ValueError('应用正在退出')
                 return self.respond(202,{'message':'近24小时扫描已启动'})
             if self.path=='/api/display':
                 if type(data.get('only_new')) is not bool:raise ValueError('请选择显示规则')
@@ -188,11 +220,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self.respond(200,store.add_custom_source(source,result))
             if self.path=='/api/openai/credential':
                 if set(data)!= {'api_key'}:raise ValueError('凭据字段无效')
-                CredentialStore().set('GermanJobRadar/OpenAI',data['api_key'])
+                CredentialStore().set(CREDENTIAL_TARGET,data['api_key'])
                 return self.respond(200,{'configured':True,'message':'OpenAI 凭据已安全保存'})
             if self.path=='/api/openai/delete':
                 if data:raise ValueError('删除凭据不接受额外字段')
-                CredentialStore().delete('GermanJobRadar/OpenAI')
+                CredentialStore().delete(CREDENTIAL_TARGET)
                 return self.respond(200,{'configured':False,'message':'OpenAI 凭据已删除'})
             if self.path=='/api/cv/delete':
                 if data:raise ValueError('删除简历不接受额外字段')
@@ -205,7 +237,7 @@ class Handler(BaseHTTPRequestHandler):
                 if data:raise ValueError('分析请求不接受额外字段')
                 current=store.current_cv(include_text=True)
                 if not current:raise ValueError('请先上传简历')
-                client=OpenAIClient(lambda:CredentialStore().get('GermanJobRadar/OpenAI'))
+                client=OpenAIClient(lambda:CredentialStore().get(CREDENTIAL_TARGET))
                 return self.respond(200,client.generate_keyword_draft(current['text'],store.profile()))
             if self.path=='/api/cv/apply-keywords':
                 if set(data)!= {'keywords'} or not isinstance(data['keywords'],list) or len(data['keywords'])>50:raise ValueError('关键词选择无效')
@@ -222,7 +254,7 @@ class Handler(BaseHTTPRequestHandler):
                 if data['category'] not in categories or not isinstance(data['note'],str) or len(data['note'])>1000:raise ValueError('反馈原因无效')
                 job=store.snapshot_job(data['scan_id'],data['job_key'])
                 profile_summary={'profile':store.profile()}
-                client=OpenAIClient(lambda:CredentialStore().get('GermanJobRadar/OpenAI'))
+                client=OpenAIClient(lambda:CredentialStore().get(CREDENTIAL_TARGET))
                 rule=client.generate_feedback_rule(job,{'category':data['category'],'note':data['note']},profile_summary,[r['rule'] for r in store.learned_rules() if r['enabled']])
                 return self.respond(200,{'scan_id':data['scan_id'],'job_key':data['job_key'],'rule':rule})
             if self.path=='/api/feedback/accept':
@@ -246,7 +278,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def serve():
-    DATA.mkdir(exist_ok=True)
+    DATA.mkdir(parents=True,exist_ok=True)
     logging.basicConfig(filename=DATA/'app.log',level=logging.INFO,encoding='utf-8',format='%(asctime)s %(levelname)s %(message)s')
     server=LocalHTTPServer(('127.0.0.1',PORT),Handler)
     store=Store(DB);store.migrate_history();store.ensure_v2_configuration(KEYWORDS,SOURCES)
@@ -262,27 +294,52 @@ def serve():
 def healthy():
     try:
         with urllib.request.urlopen(ORIGIN+'/api/health',timeout=1) as r:
-            return json.load(r).get('app')==APP_ID
+            value=json.load(r)
+            return value.get('app')==APP_ID and value.get('instance')==INSTANCE_ID
     except Exception:return False
 
 
-def open_app():
+def open_app(open_browser=True):
     if not healthy():
-        executable=Path(sys.executable).with_name('pythonw.exe')
-        subprocess.Popen([str(executable if executable.exists() else sys.executable),str(ROOT/'app.py'),'--serve'],cwd=ROOT,
+        env=os.environ.copy()
+        env['JOB_RADAR_DATA_DIR']=str(DATA)
+        if getattr(sys,'frozen',False):
+            command=[sys.executable,'--serve']
+            working=Path(sys.executable).parent
+            env['PYINSTALLER_RESET_ENVIRONMENT']='1'
+        else:
+            executable=Path(sys.executable).with_name('pythonw.exe')
+            command=[str(executable if executable.exists() else sys.executable),str(ROOT/'app.py'),'--serve']
+            working=ROOT
+        subprocess.Popen(command,cwd=working,env=env,
                          creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0,
                          stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-        for _ in range(40):
+        for _ in range(80):
             if healthy():break
             time.sleep(.25)
-        else:raise RuntimeError('本地服务未启动，请查看 data/app.log；端口 48218 可能被占用')
-    webbrowser.open(ORIGIN)
+        else:raise RuntimeError(f'本地服务未启动，请查看 {DATA / "app.log"}；端口 {PORT} 可能被另一安装占用，请先退出旧版本')
+    if open_browser:webbrowser.open(ORIGIN)
+
+
+def schedule_desktop(enabled):
+    if not FROZEN or os.name!='nt':raise ValueError('此操作只用于 Windows 下载版')
+    command=[str(Path(os.environ['SystemRoot'])/'System32/WindowsPowerShell/v1.0/powershell.exe'),
+             '-NoProfile','-ExecutionPolicy','Bypass','-File',str(ROOT/'schedule.ps1'),'-Executable',sys.executable,'-DataDirectory',str(DATA)]
+    if not enabled:command.append('-Remove')
+    try:result=subprocess.run(command,capture_output=True,timeout=30,creationflags=subprocess.CREATE_NO_WINDOW)
+    except subprocess.TimeoutExpired:raise RuntimeError('更新计划任务超时，请稍后重试') from None
+    if result.returncode:
+        logging.error('Schedule update failed: %s',result.stderr.decode('utf-8',errors='replace'))
+        raise RuntimeError('无法更新 Windows 计划任务，请查看本机日志')
 
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--serve',action='store_true');p.add_argument('--scan',action='store_true');p.add_argument('--due',action='store_true');p.add_argument('--open',action='store_true')
+    p=argparse.ArgumentParser();p.add_argument('--serve',action='store_true');p.add_argument('--scan',action='store_true');p.add_argument('--due',action='store_true');p.add_argument('--open',action='store_true');p.add_argument('--no-browser',action='store_true');p.add_argument('--self-test',type=Path);p.add_argument('--data-dir',type=Path)
     args=p.parse_args()
-    if args.serve:serve()
+    if args.self_test:
+        from radar.diagnostics import self_test
+        self_test(args.self_test)
+    elif args.serve:serve()
     elif args.scan or args.due:
         if args.due and not due():return
         try:
@@ -290,6 +347,15 @@ def main():
             if sys.stdout:print(json.dumps(result,ensure_ascii=True))
             if result['status']=='failed':raise SystemExit(1)
         except AlreadyRunning:return
-    else:open_app()
+    else:open_app(open_browser=not args.no_browser)
 
-if __name__=='__main__':main()
+if __name__=='__main__':
+    try:main()
+    except Exception as exc:
+        DATA.mkdir(parents=True,exist_ok=True)
+        logging.basicConfig(filename=DATA/'app.log',level=logging.INFO,encoding='utf-8')
+        logging.exception('Application startup failed')
+        if FROZEN and '--self-test' not in sys.argv:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(None,f'{exc}\n\n日志：{DATA / "app.log"}','德国岗位雷达',0x10)
+        raise SystemExit(1)

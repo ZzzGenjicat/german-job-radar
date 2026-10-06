@@ -12,9 +12,8 @@ from .core import BERLIN, now_utc, evaluate, merge_jobs
 from .sources import SOURCES, KEYWORDS, Fetcher, parse_search, parse_detail, query_url, check_application
 from .store import Store
 from .config import role_allowed
+from .runtime import ROOT, DATA
 
-ROOT=Path(__file__).resolve().parent.parent
-DATA=ROOT/'data'
 DB=DATA/'jobs.sqlite'
 PAGES_PER_QUERY=2
 DETAILS_PER_SOURCE=35
@@ -25,7 +24,7 @@ class AlreadyRunning(Exception):pass
 
 class ScanLock:
     def __enter__(self):
-        DATA.mkdir(exist_ok=True)
+        DATA.mkdir(parents=True,exist_ok=True)
         self.file=open(DATA/'scan.lock','a+b')
         self.file.seek(0);self.file.write(b'0');self.file.flush();self.file.seek(0)
         try:

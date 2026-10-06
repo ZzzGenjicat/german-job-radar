@@ -75,6 +75,11 @@ function showHeader(){
   $('edition-tag').textContent=`${today} · 德国时间 ${new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Berlin',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(state.now))}`;
   $('notice').hidden=!notice;$('notice').textContent=notice;$('notice').classList.toggle('error',attempt?.status==='failed');
   $('schedule-note').textContent=state.schedule?.installed?'已启用本机计划任务。周一至周五，德国时间 18:00 开始扫描。':'自动扫描未启用；可手动抓取，或按使用说明安装本机计划任务。';
+  $('quit-app').hidden=!state.desktop_packaged;
+  $('desktop-controls').hidden=!state.desktop_packaged;
+  $('enable-schedule').disabled=false;
+  $('enable-schedule').textContent=state.schedule?.installed?'更新自动扫描位置':'启用自动扫描';
+  $('disable-schedule').disabled=!state.schedule?.installed;
   $('profile-summary').textContent=state.profile.themes.length?state.profile.themes.join(' · '):'按搜索关键词查找；不按优先方向排除';
   $('last-check').textContent=snap?`最后成功采集：${date(snap.finished,true)}`:'还没有成功采集记录';
 }
@@ -187,4 +192,8 @@ document.addEventListener('change',async e=>{
   const rid=e.target.dataset.ruleToggle;
   if(rid){const item=state.learned_rules.find(r=>r.id===rid);try{await post('/api/rules/update',{id:rid,rule:item.rule,enabled:e.target.checked});renderId='';await load();}catch(error){e.target.checked=!e.target.checked;toast(error.message);}}
 });
-load();setInterval(load,5000);
+for(const [id,enabled] of [['enable-schedule',true],['disable-schedule',false]]){
+  $(id).addEventListener('click',async()=>{const button=$(id);button.disabled=true;try{const result=await post('/api/desktop/schedule',{enabled});renderId='';await load();toast(result.message);}catch(error){toast(error.message);button.disabled=false;}});
+}
+$('quit-app').addEventListener('click',async()=>{if(!confirm('退出本机应用？已启用的18点计划任务仍会运行。'))return;try{const result=await post('/api/desktop/quit',{});clearInterval(pollTimer);$('headline').textContent='应用已退出';$('date-note').textContent='可关闭这个页面；下次双击 EXE 即可重新打开。';toast(result.message);}catch(error){toast(error.message);}});
+load();const pollTimer=setInterval(load,5000);

@@ -7,11 +7,11 @@ from pathlib import Path
 
 TOP_LEVEL = ('app.py', 'setup.ps1', 'runtime.ps1', 'launch.ps1', 'schedule.ps1',
              '打开德国岗位雷达.cmd', 'requirements.txt', 'requirements-dev.txt',
-             'README.md', 'LICENSE', '.gitignore', 'CONTRIBUTING.md', 'SECURITY.md')
+             'README.md', 'LICENSE', '.gitignore', 'CONTRIBUTING.md', 'SECURITY.md', 'requirements-build.txt', 'job-radar.spec')
 MODULES = ('__init__', 'ai', 'config', 'core', 'credentials', 'cv', 'expansion', 'export_csv',
-           'feedback', 'http_fetch', 'presentation', 'scan', 'security', 'sources', 'store', 'terms')
+           'feedback', 'http_fetch', 'presentation', 'scan', 'security', 'sources', 'store', 'terms', 'runtime', 'diagnostics')
 TESTS = ('ai', 'app_api', 'config', 'core', 'credentials', 'cv', 'due', 'expansion', 'export_csv',
-         'external', 'feedback', 'http_fetch', 'incremental', 'public_features', 'release', 'server', 'sources', 'store')
+         'external', 'feedback', 'http_fetch', 'incremental', 'public_features', 'release', 'server', 'sources', 'store', 'desktop', 'schedule_script')
 FIXTURES = ('regional-search', 'regional-repost', 'ba-search', 'ba-detail')
 
 
@@ -22,7 +22,8 @@ def release_files(root):
     files += [f'tests/test_{name}.py' for name in TESTS]
     files += [f'tests/fixtures/synthetic-{name}.html' for name in FIXTURES]
     files += ['web/index.html', 'web/app.js', 'web/style.css', 'web/favicon.svg',
-              'tools/__init__.py', 'tools/build_release.py', 'docs/USAGE.zh-CN.md', '.github/workflows/tests.yml']
+              'tools/__init__.py', 'tools/build_release.py', 'tools/build_exe.py', 'tools/smoke_exe.py',
+              'docs/USAGE.zh-CN.md', 'docs/WINDOWS.md', 'docs/RELEASE.md', 'packaging/NATIVE_NOTICES.txt', '.github/workflows/tests.yml', '.github/workflows/release.yml']
     for name in files:
         path = root / name
         if path.is_symlink() or not path.is_file() or not path.resolve().is_relative_to(root):

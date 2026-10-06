@@ -7,7 +7,7 @@
   <script src="/app.js" defer></script>
 </head>
 <body>
-  <header class="topbar"><div class="brand"><span class="brand-icon">R<span></span></span><div><strong>岗位雷达</strong><small>GERMAN JOB RADAR</small></div></div><div class="local-tag">本机应用 <span>采集、筛选与偏好保存在本机</span></div></header>
+  <header class="topbar"><div class="brand"><span class="brand-icon">R<span></span></span><div><strong>岗位雷达</strong><small>GERMAN JOB RADAR</small></div></div><div class="local-tag">本机应用 <span>采集、筛选与偏好保存在本机</span></div><button id="quit-app" hidden>退出应用</button></header>
   <main>
     <section class="heading"><div><div class="eyebrow" id="edition-tag">德国时间 · 工作日 18:00 更新</div><h1 id="headline">正在读取岗位结果</h1><p id="date-note">正在连接本机数据库…</p></div><div class="heading-actions"><button id="open-settings">搜索设置</button><button class="primary" id="refresh"><span class="refresh-icon">↻</span> 重新核验岗位</button></div></section>
     <section id="notice" class="notice" role="status" hidden></section>
@@ -29,6 +29,7 @@
     <footer><span>先核验证据，再决定申请。</span><span>Europe/Berlin · 本机存储 · 无自动投递</span></footer>
   </main>
   <dialog id="settings-dialog" class="settings-dialog"><div class="dialog-head"><div><h2>搜索设置</h2><p>修改从下一次手动或18点扫描生效。</p></div><button id="close-settings" aria-label="关闭">×</button></div>
+    <section id="desktop-controls" class="settings-section" hidden><h3>18点自动扫描</h3><p>按德国时间在工作日18点后扫描。需电脑开机、联网并保持 Windows 登录；不需要一直开着浏览器。请把 EXE 放在固定位置，移动后重新启用。</p><button id="enable-schedule" type="button">启用自动扫描</button><button id="disable-schedule" type="button">停用自动扫描</button><p><a href="/third-party-notices.txt" target="_blank" rel="noopener">第三方许可声明</a></p></section>
     <form id="profile-form" class="settings-section"><h3>我的求职目标</h3><label><input type="checkbox" id="role-regular"> 正式岗位（含全职、兼职、初级及资深岗位）</label><label><input type="checkbox" id="role-internship"> Praktikum / Intern</label><label><input type="checkbox" id="role-werkstudent"> Werkstudent / Working Student</label><label><input type="checkbox" id="profile-fulltime"> 只接受 Vollzeit / 约35–40小时；取消后也接受兼职</label><label><input type="checkbox" id="profile-relocation"> 可以按公司安排搬迁（供 AI 生成关键词时参考）</label><label>优先方向（至少命中一个；留空则不按方向排除）<input id="profile-themes" placeholder="例如 AI, CRM 或 Buchhaltung"></label><label>排除词（可留空；Junior 可按需添加）<input id="profile-exclusions" placeholder="例如 Pflichtpraktikum, unbezahlt"></label><label>补充要求（供 AI 生成关键词时参考）<textarea id="profile-notes" maxlength="2000"></textarea></label><button class="primary">保存求职目标</button></form>
     <section class="settings-section"><h3>首轮关键词扩展</h3><label><input type="checkbox" id="auto-expand"> 首轮搜索后自动增加相关关键词</label><p>在本机按可检查的词库寻找相关词，只有至少两份候选 JD 提到才添加，最多10个，下次搜索生效。无需 API Key；不会上传 JD。删除或改名的词不会自动加回。</p><div id="expansion-details"></div></section>
     <section class="settings-section"><h3>来源</h3><p>至少保留一个来源。关闭后从下一次扫描停止查询。测试会实际读取搜索页和一个岗位详情。当前适配 Arbeitsagentur 及可识别的地区招聘网页；任意 URL 不保证可读取，未适配的网页会明确拒绝。</p><div id="source-settings"></div><form id="custom-source-form" class="stack-form"><h4>添加地区招聘网站</h4><label>名称<input id="custom-source-name" maxlength="100" placeholder="例如 Berlin Jobs" required></label><label>HTTPS 网址<input id="custom-source-url" type="url" placeholder="https://example.de" required></label><button>测试并添加网址</button></form><p id="custom-source-result" class="privacy-note"></p></section>
