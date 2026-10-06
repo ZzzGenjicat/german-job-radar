@@ -1,6 +1,7 @@
 """Exercise scheduling arguments without touching Windows Task Scheduler."""
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -26,6 +27,13 @@ function Get-ScheduledTask { param($TaskName) [pscustomobject]@{TaskName=$TaskNa
 
 @unittest.skipUnless(os.name == 'nt', 'Windows script')
 class ScheduleScriptTests(unittest.TestCase):
+    def assert_data_argument(self, arguments, expected):
+        match = re.search(r'--data-dir "([^"]+)"', arguments)
+        self.assertIsNotNone(match)
+        # Windows runners can expose a short TEMP alias (RUNNER~1) while
+        # PowerShell resolves the same directory to its long name.
+        self.assertEqual(Path(match.group(1)).resolve(), expected.resolve())
+
     def run_schedule(self, root, data, exe=''):
         wrapper = root / 'mock-scheduler.ps1'
         wrapper.write_text(WRAPPER, encoding='utf-8-sig')
@@ -46,14 +54,14 @@ class ScheduleScriptTests(unittest.TestCase):
             data = root / '用户数据'
             first = self.run_schedule(root, data, exe)
             self.assertTrue(first['task'].startswith('GermanJobRadar-Desktop-'))
-            self.assertIn(str(data), first['action']['arguments'])
+            self.assert_data_argument(first['action']['arguments'], data)
             self.assertIn('--data-dir', first['action']['arguments'])
             self.assertIn('--due', first['action']['arguments'])
             self.assertFalse((root / 'must-not-use-env').exists())
             moved = root / 'moved.exe'; moved.touch()
             second = self.run_schedule(root, data, moved)
             self.assertEqual(first['task'], second['task'])
-            self.assertEqual(second['action']['execute'], str(moved))
+            self.assertEqual(Path(second['action']['execute']).resolve(), moved.resolve())
             other = self.run_schedule(root, root / 'other-user-data', moved)
             self.assertNotEqual(first['task'], other['task'])
 
@@ -65,7 +73,7 @@ class ScheduleScriptTests(unittest.TestCase):
             source_again = self.run_schedule(root, data)
             self.assertNotEqual(source['task'], desktop['task'])
             self.assertEqual(source['task'], source_again['task'])
-            self.assertIn(str(data), source['action']['arguments'])
+            self.assert_data_argument(source['action']['arguments'], data)
             self.assertTrue((data / 'schedule.json').is_file())
 
 
