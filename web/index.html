@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>德国岗位雷达</title><meta name="description" content="带有来源、关键词及核验依据的本地德国职位阅读器">
+  <link rel="icon" href="/favicon.svg"><link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar"><div class="brand"><span class="brand-icon">R<span></span></span><div><strong>岗位雷达</strong><small>GERMAN JOB RADAR</small></div></div><div class="local-tag">本机应用 <span>采集、筛选与偏好保存在本机</span></div></header>
+  <main>
+    <section class="heading"><div><div class="eyebrow" id="edition-tag">德国时间 · 工作日 18:00 更新</div><h1 id="headline">正在读取岗位结果</h1><p id="date-note">正在连接本机数据库…</p></div><div class="heading-actions"><button id="open-settings">搜索设置</button><button class="primary" id="refresh"><span class="refresh-icon">↻</span> 重新核验岗位</button></div></section>
+    <section id="notice" class="notice" role="status" hidden></section>
+    <section id="progress" class="progress-panel" aria-live="polite" hidden><div><span class="spinner"></span><strong id="progress-label">正在扫描</strong><span id="progress-count"></span></div><progress id="progress-bar" max="100" value="0"></progress><p>扫描完成前继续展示最近一次结果。发布时间、来源和申请状态会逐条核验。</p></section>
+    <div class="workspace">
+      <section class="results" aria-label="职位结果">
+        <div class="results-top"><div><h2>找到的岗位</h2><p id="profile-summary">按你的关键词和求职目标筛选</p></div><span class="scope-tag">德国招聘来源</span></div>
+        <div class="display-options"><label><input type="checkbox" id="only-new" checked> 只显示此前没出现过的岗位</label><button id="confirm-display">确认此显示规则</button><button id="export-csv">导出全部岗位 CSV（只作为建议）</button><p id="delta-note">默认只看新增。取消勾选可查看本轮全部；16点已出现的岗位不会在18点重复显示。</p></div>
+        <nav class="tabs" aria-label="结果分类"><button class="tab active" data-view="review">待人工筛查 <b id="n-review">0</b></button><button class="tab" data-view="excluded">已排除 <b id="n-excluded">0</b></button></nav>
+        <p class="view-note" id="view-note"></p><div id="jobs" aria-live="polite"></div>
+      </section>
+      <aside>
+        <section class="side-panel"><div class="panel-title"><h2>这次查了什么</h2><span class="tiny-label" id="query-label">尚未扫描</span></div><p>可直接启用、停用、编辑或删除关键词；修改从下一次扫描生效。</p><div class="keyword-list" id="keywords"></div><form id="keyword-form" class="inline-form"><input id="new-keyword" maxlength="120" placeholder="添加搜索关键词" required><button>添加</button></form><p id="expansion-summary" class="privacy-note"></p><details class="method"><summary>筛选口径</summary><p>岗位形式、全职要求、优先方向和排除词由搜索设置决定。默认排除明确无薪、过期及旧转载岗位。</p><p>所有候选统一放入“待人工筛查”。卡片保留自动核验状态和证据缺口，请查看原文后决定是否申请。序号在本批次内固定，和 CSV 一致。</p></details></section>
+        <section class="side-panel"><div class="panel-title"><h2>来源实测</h2><span class="tiny-label" id="source-count">等待结果</span></div><div id="source-list"></div><p class="coverage-note" id="coverage-note">每个来源都记录实际读取结果，不能读取时会显示原因。</p></section>
+        <section class="side-panel compact"><h2>每日 18:00</h2><p id="schedule-note">正在读取计划状态…</p><p>18:00 前默认展示最近批次；手动抓取后立即展示最新结果。18:00 自动再扫，默认只看此前未出现的岗位。电脑关机或离线时无法采集。</p><p class="last-check" id="last-check"></p></section>
+      </aside>
+    </div>
+    <section class="audit"><details id="audit-details"><summary><span id="audit-title">查看本轮检索记录</span><span id="audit-count">关键词 · 查询链接 · 读取状态</span></summary><div id="audit-content"></div></details></section>
+    <footer><span>先核验证据，再决定申请。</span><span>Europe/Berlin · 本机存储 · 无自动投递</span></footer>
+  </main>
+  <dialog id="settings-dialog" class="settings-dialog"><div class="dialog-head"><div><h2>搜索设置</h2><p>修改从下一次手动或18点扫描生效。</p></div><button id="close-settings" aria-label="关闭">×</button></div>
+    <form id="profile-form" class="settings-section"><h3>我的求职目标</h3><label><input type="checkbox" id="role-regular"> 正式岗位（含全职、兼职、初级及资深岗位）</label><label><input type="checkbox" id="role-internship"> Praktikum / Intern</label><label><input type="checkbox" id="role-werkstudent"> Werkstudent / Working Student</label><label><input type="checkbox" id="profile-fulltime"> 只接受 Vollzeit / 约35–40小时；取消后也接受兼职</label><label><input type="checkbox" id="profile-relocation"> 可以按公司安排搬迁（供 AI 生成关键词时参考）</label><label>优先方向（至少命中一个；留空则不按方向排除）<input id="profile-themes" placeholder="例如 AI, CRM 或 Buchhaltung"></label><label>排除词（可留空；Junior 可按需添加）<input id="profile-exclusions" placeholder="例如 Pflichtpraktikum, unbezahlt"></label><label>补充要求（供 AI 生成关键词时参考）<textarea id="profile-notes" maxlength="2000"></textarea></label><button class="primary">保存求职目标</button></form>
+    <section class="settings-section"><h3>首轮关键词扩展</h3><label><input type="checkbox" id="auto-expand"> 首轮搜索后自动增加相关关键词</label><p>在本机按可检查的词库寻找相关词，只有至少两份候选 JD 提到才添加，最多10个，下次搜索生效。无需 API Key；不会上传 JD。删除或改名的词不会自动加回。</p><div id="expansion-details"></div></section>
+    <section class="settings-section"><h3>来源</h3><p>至少保留一个来源。关闭后从下一次扫描停止查询。测试会实际读取搜索页和一个岗位详情。当前适配 Arbeitsagentur 及可识别的地区招聘网页；任意 URL 不保证可读取，未适配的网页会明确拒绝。</p><div id="source-settings"></div><form id="custom-source-form" class="stack-form"><h4>添加地区招聘网站</h4><label>名称<input id="custom-source-name" maxlength="100" placeholder="例如 Berlin Jobs" required></label><label>HTTPS 网址<input id="custom-source-url" type="url" placeholder="https://example.de" required></label><button>测试并添加网址</button></form><p id="custom-source-result" class="privacy-note"></p></section>
+    <section class="settings-section" id="cv-ai-settings"><h3>CV 与 AI</h3><p id="openai-status">正在检查 OpenAI 凭据…</p><form id="openai-form" class="inline-form"><input id="openai-key" type="password" autocomplete="off" placeholder="OpenAI API Key" required><button>安全保存</button></form><button id="delete-openai-key" class="danger-link" type="button">删除已保存的凭据</button><p class="privacy-note">密钥只保存在 Windows 凭据保险库，网页无法读回。AI 请求使用 store:false；标准 API 滥用监控保留政策仍可能适用。</p><form id="cv-upload-form" class="upload-form"><label>上传 PDF 或 DOCX 简历<input id="cv-file" type="file" accept=".pdf,.docx" required></label><button>上传并在本机提取文字</button></form><div id="cv-status"></div><p class="privacy-note">点击“用 AI 分析”后，会向 OpenAI 发送本机提取的简历文字（最多 30,000 字符）和上面的求职目标；不会发送简历原文件。岗位“不适合我”分析不会发送简历文字。</p><div class="dialog-actions"><button id="delete-cv" type="button">删除本机简历</button><button id="analyze-cv" class="primary" type="button">用 AI 分析并生成关键词</button></div><div id="ai-draft"></div></section>
+    <section class="settings-section"><h3>AI 学到的偏好</h3><div id="learned-rule-settings"><p>还没有学习规则。</p></div></section>
+  </dialog>
+  <dialog id="feedback-dialog" class="settings-dialog feedback-dialog"><div class="dialog-head"><div><h2>这个岗位为什么不适合？</h2><p id="feedback-job"></p></div><button id="close-feedback" aria-label="关闭">×</button></div><form id="feedback-form" class="settings-section"><label>主要原因<select id="feedback-category"><option value="work_mismatch">工作内容不匹配</option><option value="too_marketing">太偏市场或内容运营</option><option value="too_technical">太偏纯技术或科研</option><option value="sales_without_ai">只是普通销售，没有 AI 自动化</option><option value="qualification">资历要求过高</option><option value="hours">工时或岗位形式不符合</option><option value="industry">行业不感兴趣</option><option value="other">其他原因</option></select></label><label>补充说明<textarea id="feedback-note" maxlength="1000" placeholder="可选：告诉 AI 哪一类相似岗位以后也不要推荐"></textarea></label><button class="primary" id="analyze-feedback">让 AI 分析这次反馈</button></form><section id="feedback-preview" class="settings-section" hidden></section><div class="dialog-actions feedback-actions"><button id="cancel-feedback" type="button">返回</button><button id="accept-feedback" class="primary" type="button" disabled>确认并用于以后筛选</button></div></dialog>
+  <p id="toast" role="status" hidden></p>
+</body></html>
