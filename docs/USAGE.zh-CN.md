@@ -1,6 +1,12 @@
 # 使用说明
 
-安装 Python 3.11+ 后运行 setup.ps1，再运行 launch.ps1 或双击 CMD 启动器。首次打开不会自动抓取。
+无需安装 Python，也无需运行安装命令。
+
+1. 下载 [GermanJobRadar-Windows-x64.zip](https://github.com/ZzzGenjicat/german-job-radar/releases/latest/download/GermanJobRadar-Windows-x64.zip)。
+2. 解压整个 ZIP，双击其中的 **GermanJobRadar-Windows-x64.exe**，默认浏览器会打开本机应用。
+3. 在“搜索设置”填写需求和关键词，再开始抓取。首次打开不会自动抓取。
+
+支持 Windows 10/11 x64。更新、自动搜索与启动问题详见 [Windows 下载版说明](WINDOWS.md)。
 
 在“搜索设置”选择正式岗、实习或 Werkstudent。全职要求单独设置，取消后也接受兼职。优先方向至少命中一个才保留，可留空；Junior 可按需加入排除词。正式岗关键词用 CRM、Buchhaltung、Softwareentwicklung 等，保留 Praktikum 前缀仍会让招聘网站只返回实习。设好后点击“抓取截至现在的近24小时新岗”。
 
@@ -12,11 +18,8 @@
 
 添加网站只填写名称和 HTTPS URL。测试可读才添加，当前结构适配有限，任意 URL 不保证能爬取；URL 会规范化为网站根地址。
 
-在“搜索设置 → 自动搜索”勾选“开启自动搜索”，选择时、分后保存。默认周一至周五德国时间18:00，夏令时自动适应；取消勾选后保存可停用。源码版也可运行 schedule.ps1 -Time "17:35" 设置时间，schedule.ps1 -Remove 停用。定时在本机执行，无需 Codex；关闭浏览器仍可运行，但电脑关机、退出 Windows 登录或离线不能抓取。错过时间会补抓当天尚未完成的自动批次，同一天完成后改时间不会重复自动扫描。16点已出现岗位，默认18点批次不重复显示；首次发现与真实发布时间分开记录。
+在“搜索设置 → 自动搜索”勾选“开启自动搜索”，选择时、分后保存。默认周一至周五德国时间18:00，夏令时自动适应；取消勾选后保存可停用。定时在本机执行，无需 Codex；关闭浏览器仍可运行，但电脑关机、退出 Windows 登录或离线不能抓取。错过时间会补抓当天尚未完成的自动批次，同一天完成后改时间不会重复自动扫描。16点已出现岗位，默认18点批次不重复显示；首次发现与真实发布时间分开记录。
 
 不配置 AI 也能搜索、扩展和导出。CV 上传只在本机提取，主动点 AI 分析才向 OpenAI 发送对应文字；需自己的 API Key，可能收费，ChatGPT 订阅不含此密钥。“不适合我”分析生成规则，确认后才影响类似岗位，可停用或删除。没有收藏、申请清单或 Google 表格同步。
 
-密钥保存在 Windows 凭据管理器。删除 CV 会删原文件及提取文字，无法撤回已发给 API 的文字。开源发布使用 release builder，不要上传 data/、简历、日志或个人 CSV。
-# 无需 Python 的 Windows 下载版
-
-普通用户推荐下载 [Windows ZIP](https://github.com/ZzzGenjicat/german-job-radar/releases/latest/download/GermanJobRadar-Windows-x64.zip)，解压后双击 EXE。详见 [下载版说明](WINDOWS.md)。以下 Python 安装步骤只适用于源码版。
+密钥保存在 Windows 凭据管理器。删除 CV 会删原文件及提取文字，无法撤回已发给 API 的文字。不要上传本机应用数据、简历、日志或个人 CSV。

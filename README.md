@@ -21,36 +21,17 @@ The bundled app saves data in `%LOCALAPPDATA%\GermanJobRadar`, independent of th
 - Links open in the OS default browser. No automatic applications, bookmarks, Google Drive or spreadsheet sync.
 - Optional local PDF/DOCX extraction and OpenAI keyword drafting/feedback analysis. AI drafts require your confirmation, your own API key and may incur charges. A ChatGPT subscription is not an API key.
 
-## Install from source (developers)
+## Getting started
 
-Requirements: Windows 10/11, Python 3.11+ with venv/pip, network access for installation and searches. Tested with Python 3.12. Install from [python.org](https://www.python.org/downloads/windows/).
+1. Download the named **GermanJobRadar-Windows-x64.zip** asset from [Releases](https://github.com/ZzzGenjicat/german-job-radar/releases/latest).
+2. Extract the ZIP and double-click **GermanJobRadar-Windows-x64.exe**. Your default browser opens the local app.
+3. Choose roles/themes in **搜索设置**, edit your keywords, then start a manual scan. **First launch does not search.**
 
-From the extracted project folder in PowerShell:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launch.ps1
-# Optional explicit interpreter:
-.\setup.ps1 -Python "C:\path\to\python.exe"
-```
-
-After setup you can double-click `打开德国岗位雷达.cmd`. The app opens at `http://127.0.0.1:48218`. **First launch does not search.** Choose roles/themes in 搜索设置, edit keywords, then start a manual scan. Empty themes disable theme-based exclusions. Search covers Germany nationwide; relocation/notes currently inform optional AI drafting rather than filtering cities.
-
-Run `launch.ps1` in PowerShell to see startup errors; service errors appear in `data/app.log`. Only one installation can use port 48218 at a time.
+No Python installation, terminal commands or dependency setup is needed. Empty themes disable theme-based exclusions. Search covers Germany nationwide; relocation/notes currently inform optional AI drafting rather than filtering cities. See [Windows instructions](docs/WINDOWS.md) for updates and troubleshooting.
 
 ## Optional schedule
 
-In **搜索设置 → 自动搜索**, tick **开启自动搜索**, choose an HH:MM time, and click **保存自动搜索设置**. Both the source and packaged Windows app support this. Untick and save to disable; the chosen time is preserved. The default is 18:00, Monday–Friday, in Germany's timezone rather than your PC's timezone.
-
-The command-line alternative preserves an existing selected time unless `-Time` is supplied:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\schedule.ps1
-# Choose a different Berlin time:
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\schedule.ps1 -Time "17:35"
-# Disable without deleting history:
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\schedule.ps1 -Remove
-```
+In **搜索设置 → 自动搜索**, tick **开启自动搜索**, choose an HH:MM time, and click **保存自动搜索设置**. Untick and save to disable; the chosen time is preserved. The default is 18:00, Monday–Friday, in Germany's timezone rather than your PC's timezone.
 
 Windows Task Scheduler runs as your logged-in user and wakes at the selected minute of each hour; the app gates scans to weekdays after the chosen Berlin time, including daylight-saving changes. While running, the app checks every 30 seconds. No Codex or ChatGPT session is needed. The lock/completed-batch record prevents duplicate scans on the same day, even after changing the time. Manual daytime scans do not cancel the scheduled scan. Saving an already-past time or launching after a missed scan can catch up for the current workday. Power-off, signed-out users and offline networks cannot fetch jobs. Removing the task also disables automatic scanning inside the app.
 
@@ -64,24 +45,12 @@ Dates, original-date conflicts, work hours and application availability are chec
 
 ## Privacy
 
-Settings, histories, CV files/text and logs stay in `data/`. Keys use Windows Credential Manager and are never returned to the browser. The server binds to loopback and requires same-origin requests plus a random token for mutations and CSV export.
+Settings, histories, CV files/text and logs stay in `%LOCALAPPDATA%\GermanJobRadar`. Keys use Windows Credential Manager and are never returned to the browser. The server binds to loopback and requires same-origin requests plus a random token for mutations and CSV export.
 
 CV upload alone is local. Clicking AI analysis sends extracted CV text (up to 30,000 characters) and requirements to OpenAI. Feedback sends job text, your reason, requirements and existing rules, without CV text. API requests set `store:false`; this is not a guarantee of zero provider retention. Deleting local CV files cannot retract data already sent to a provider.
 
-Do not publish CVs, keys, exports, logs or `data/`. Use the allowlisted builder when releasing a copy of an existing installation.
+Do not publish CVs, keys, exports, logs or your local app data.
 
-## Development and release
+## Contributing
 
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
-node --check web/app.js
-# Empty destination outside this tree:
-.\.venv\Scripts\python.exe tools/build_release.py --destination ..\job-radar-public --zip ..\job-radar-public.zip
-```
-
-Offline tests use synthetic fixtures. CI is configured for Windows/Python 3.11–3.13. The builder copies an explicit allowlist, rejects symlinks and checks obvious secrets/machine paths; review the output before uploading because automated checks cannot detect every secret.
-
-To build the Windows executable, install `requirements-build.txt` in a clean Windows/Python x64 environment, then run `python tools/build_exe.py` and `python tools/smoke_exe.py dist/GermanJobRadar-Windows-x64.exe` (smoke also requires `requirements-dev.txt`). Publishing a GitHub Release triggers the Windows build, offline tests, frozen runtime smoke and asset upload. The spec explicitly bundles web assets, DOCX templates and tzdata; no `data/`, CVs, local settings or keys are bundled.
-
-Implementation: standard-library HTTP server, SQLite snapshots/alias deduplication, lxml parsers, static JS/CSS. Optional AI uses structured Responses API output. Windows-first: native credentials, launch and scheduling are not implemented for Linux/macOS.
+Code contributors can find development, testing and release instructions in [CONTRIBUTING.md](CONTRIBUTING.md). The ready-to-run Windows download includes its runtime and dependencies.
