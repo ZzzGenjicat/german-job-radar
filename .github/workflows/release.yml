@@ -2,15 +2,37 @@ name: Windows download
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to rebuild (replaces its download files)'
+        required: true
+        type: string
 permissions:
   contents: read
+concurrency:
+  group: windows-download-${{ inputs.tag || github.event.release.tag_name }}
+  cancel-in-progress: false
 jobs:
   package:
     runs-on: windows-latest
     permissions:
       contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
     steps:
+      - name: Validate existing release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ($env:RELEASE_TAG -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?$') {
+            throw 'A version tag such as v0.2.1 is required'
+          }
+          gh release view "$env:RELEASE_TAG" --repo "$env:GITHUB_REPOSITORY"
+          if ($LASTEXITCODE -ne 0) { throw 'The requested GitHub Release does not exist' }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.13.16'
@@ -26,5 +48,17 @@ jobs:
       - name: Publish verified downloads
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$env:RELEASE_TAG" dist/GermanJobRadar-Windows-x64.exe dist/GermanJobRadar-Windows-x64.zip dist/THIRD_PARTY_NOTICES.txt dist/SHA256SUMS.txt --repo "$env:GITHUB_REPOSITORY"
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          foreach ($asset in @('dist/GermanJobRadar-Windows-x64.exe', 'dist/GermanJobRadar-Windows-x64.zip', 'dist/THIRD_PARTY_NOTICES.txt', 'dist/SHA256SUMS.txt')) {
+            $uploaded = $false
+            for ($attempt = 1; $attempt -le 3; $attempt++) {
+              gh release upload "$env:RELEASE_TAG" "$asset" --repo "$env:GITHUB_REPOSITORY" --clobber
+              if ($LASTEXITCODE -eq 0) { $uploaded = $true; break }
+              if ($attempt -lt 3) {
+                Write-Warning "Retrying upload of $asset after attempt $attempt"
+                Start-Sleep -Seconds (5 * $attempt)
+              }
+            }
+            if (-not $uploaded) { throw "Upload failed for $asset after three attempts" }
+          }

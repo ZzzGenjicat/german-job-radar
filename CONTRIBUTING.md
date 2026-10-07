@@ -24,6 +24,8 @@ The public source builder copies an explicit allowlist, rejects symlinks and che
 
 Build the Windows executable in a clean Windows/Python x64 environment with `requirements-build.txt`, then run `python tools/build_exe.py` and `python tools/smoke_exe.py dist/GermanJobRadar-Windows-x64.exe` (the smoke requires `requirements-dev.txt`). Publishing a GitHub Release triggers the Windows build, offline tests, frozen runtime smoke and asset upload. The spec bundles web assets, DOCX templates and tzdata; no `data/`, CVs, local settings or keys are bundled.
 
+If a release upload times out, run **Actions → Windows download → Run workflow** on `main` and enter the existing version tag. It rebuilds that tag, repeats all checks, then replaces that release's download files. Uploads run one file at a time with up to three attempts; the checksum manifest is uploaded last. Runs for the same tag are serialized. This does not move the tag or change the application source.
+
 ## Contribution guidelines
 
 Keep parsing separate from fetching. New adapters require synthetic search/detail/failure fixtures, original vs modified date checks and explicit parse errors. Do not commit real CVs, downloaded pages with personal contact data, credentials or histories. Do not bypass CAPTCHAs or restricted endpoints.
