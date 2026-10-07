@@ -9,9 +9,9 @@ TOP_LEVEL = ('app.py', 'setup.ps1', 'runtime.ps1', 'launch.ps1', 'schedule.ps1',
              '打开德国岗位雷达.cmd', 'requirements.txt', 'requirements-dev.txt',
              'README.md', 'LICENSE', '.gitignore', 'CONTRIBUTING.md', 'SECURITY.md', 'requirements-build.txt', 'job-radar.spec')
 MODULES = ('__init__', 'ai', 'config', 'core', 'credentials', 'cv', 'expansion', 'export_csv',
-           'feedback', 'http_fetch', 'presentation', 'scan', 'security', 'sources', 'store', 'terms', 'runtime', 'diagnostics')
+           'feedback', 'http_fetch', 'presentation', 'scan', 'security', 'sources', 'store', 'terms', 'runtime', 'diagnostics', 'scheduling')
 TESTS = ('ai', 'app_api', 'config', 'core', 'credentials', 'cv', 'due', 'expansion', 'export_csv',
-         'external', 'feedback', 'http_fetch', 'incremental', 'public_features', 'release', 'server', 'sources', 'store', 'desktop', 'schedule_script')
+         'external', 'feedback', 'http_fetch', 'incremental', 'public_features', 'release', 'server', 'sources', 'store', 'desktop', 'schedule_script', 'scheduling')
 FIXTURES = ('regional-search', 'regional-repost', 'ba-search', 'ba-detail')
 
 

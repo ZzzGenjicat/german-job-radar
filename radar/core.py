@@ -5,6 +5,7 @@ import re
 from datetime import datetime, timedelta, time, timezone
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 from zoneinfo import ZoneInfo
+from .scheduling import DEFAULT_TIME, scan_time
 
 BERLIN = ZoneInfo('Europe/Berlin')
 UTC = timezone.utc
@@ -14,10 +15,10 @@ def now_utc():
     return datetime.now(UTC)
 
 
-def edition_for(now):
+def edition_for(now, schedule_time=DEFAULT_TIME):
     local = now.astimezone(BERLIN)
     day = local.date()
-    if local.hour < 18:
+    if local.time().replace(tzinfo=None) < scan_time(schedule_time):
         day -= timedelta(days=1)
     while day.weekday() >= 5:
         day -= timedelta(days=1)

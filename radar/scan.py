@@ -40,7 +40,13 @@ class ScanLock:
 
 def run_scan(kind='manual',source_ids=None):
     with ScanLock():
-        store=Store(DB);store.migrate_history();store.ensure_v2_configuration(KEYWORDS,SOURCES);started=now_utc();run=store.start(started,kind)
+        store=Store(DB);store.migrate_history();store.ensure_v2_configuration(KEYWORDS,SOURCES);started=now_utc()
+        # The app loop and Windows task can both pass due() before either
+        # starts. Recheck after acquiring the cross-process lock so a delayed
+        # worker cannot repeat a batch that has just completed elsewhere.
+        if kind in ('scheduled','catchup') and store.scheduled_today(started.astimezone(BERLIN).date().isoformat()):
+            return {'status':'skipped','reason':'already_completed_today'}
+        run=store.start(started,kind)
         fetcher=Fetcher();queries=[];candidates=[];detail_errors=[];guard=threading.Lock()
         configured_sources=[s for s in store.source_settings() if s['enabled']]
         sources=[s for s in configured_sources if not source_ids or s['id'] in source_ids]

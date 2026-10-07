@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from .core import BERLIN, edition_for, canonical_url, now_utc
+from .scheduling import read_schedule, scan_time
 
 
 class Store:
@@ -45,7 +46,8 @@ class Store:
     def start(self,now,kind):
         run=uuid.uuid4().hex
         local=now.astimezone(BERLIN)
-        edition=local.date().isoformat() if local.weekday()<5 and local.hour>=18 else None
+        threshold=scan_time(read_schedule(self.path.parent)['time'])
+        edition=local.date().isoformat() if local.weekday()<5 and (kind in ('scheduled','catchup') or local.time().replace(tzinfo=None)>=threshold) else None
         with self.connect() as db:
             db.execute('INSERT INTO scans VALUES(?,?,NULL,?,?,?,?)',(run,now.isoformat(),edition,kind,'running',json.dumps({'progress':'正在读取招聘来源','completed':0,'total':0})))
         return run
@@ -364,7 +366,7 @@ class Store:
         if not row:return None
         result=dict(row);result.update(json.loads(result.pop('payload')));return result
     def view(self,now):
-        target=edition_for(now)
+        target=edition_for(now,read_schedule(self.path.parent)['time'])
         with self.connect() as db:
             latest=self.unpack(db.execute('SELECT * FROM scans ORDER BY started DESC LIMIT 1').fetchone())
             chosen=self.unpack(db.execute("SELECT * FROM scans WHERE status IN ('complete','partial') ORDER BY started DESC LIMIT 1").fetchone())

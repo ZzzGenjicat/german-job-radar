@@ -32,7 +32,7 @@ def smoke(executable):
         env['JOB_RADAR_PORT'] = str(port)
         origin = f'http://127.0.0.1:{port}'
         report = root / 'checks.json'
-        subprocess.run([str(exe), '--self-test', str(report)], env=env, cwd=root, check=True, timeout=45)
+        subprocess.run([str(exe), '--data-dir', str(data_dir), '--self-test', str(report)], env=env, cwd=root, check=True, timeout=45)
         checks = json.loads(report.read_text(encoding='utf-8'))
         assert checks['ok'] and checks['checks']['frozen'], checks
         token = None
@@ -78,6 +78,15 @@ def smoke(executable):
             assert all(name in notices.decode('utf-8') for name in ('OpenSSL', 'libffi', 'libxml2', 'libxslt'))
             state = json.loads(request('/api/state')[0]); token = state['token']
             assert state['desktop_packaged'] and not state['snapshot'] and not state['cv']
+            assert state['schedule_supported'] and state['schedule']['time'] == '18:00'
+            assert not state['schedule']['installed']
+            # Saves a real configuration through the protected packaged API;
+            # disabled means no task or network scan is created for this smoke.
+            result = json.loads(request('/api/schedule', {'enabled': False, 'time': '17:35'})[0])
+            assert result['schedule']['time'] == '17:35' and not result['schedule']['installed']
+            try: request('/api/schedule', {'enabled': False, 'time': '24:00'})
+            except urllib.error.HTTPError as error: assert error.code == 400
+            else: raise AssertionError('Invalid schedule time was accepted')
             try:
                 urllib.request.urlopen(urllib.request.Request(origin + '/api/desktop/quit', data=b'{}'), timeout=5)
             except urllib.error.HTTPError as error: assert error.code == 403
@@ -107,7 +116,12 @@ def smoke(executable):
             assert any(k['term'] == 'SyntheticSmokeKeyword' for k in state['keywords'])
             assert not state['cv']
             assert not state['schedule']['installed'] and not state['snapshot']
+            assert state['schedule']['time'] == '17:35'
             stop(); started = False
+        except Exception:
+            log = data_dir / 'app.log'
+            if log.is_file(): print(log.read_text(encoding='utf-8').encode('ascii', errors='backslashreplace').decode('ascii'))
+            raise
         finally:
             if started:
                 try: stop()

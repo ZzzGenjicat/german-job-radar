@@ -8,7 +8,7 @@ A local Windows dashboard for German job searches. Use your own keywords, inspec
 
 Download [GermanJobRadar-Windows-x64.zip](https://github.com/ZzzGenjicat/german-job-radar/releases/latest/download/GermanJobRadar-Windows-x64.zip), extract it and double-click the EXE. Or download the [standalone EXE](https://github.com/ZzzGenjicat/german-job-radar/releases/latest/download/GermanJobRadar-Windows-x64.exe). Windows 10/11 x64; no administrator or Python installation needed. See [Windows instructions](docs/WINDOWS.md), license notices and SHA256 checksums in [Releases](https://github.com/ZzzGenjicat/german-job-radar/releases).
 
-The bundled app saves data in `%LOCALAPPDATA%\GermanJobRadar`, independent of the EXE's location. Exit in the dashboard before replacing the EXE; history stays. Optional 18:00 scheduling can be enabled/disabled in search settings. Keep the EXE at a fixed location, or re-enable scheduling after moving it. The executable is currently unsigned.
+The bundled app saves data in `%LOCALAPPDATA%\GermanJobRadar`, independent of the EXE's location. Exit in the dashboard before replacing the EXE; history stays. Enable automatic searches and choose a time in search settings (default 18:00 Europe/Berlin, Monday–Friday). Keep the EXE at a fixed location, or save scheduling settings again after moving it. The executable is currently unsigned.
 
 ## Features
 
@@ -16,7 +16,7 @@ The bundled app saves data in `%LOCALAPPDATA%\GermanJobRadar`, independent of th
 - Editable keywords, optional themes and exclusion words. Initial AI/CRM terms are examples, not fixed restrictions. For regular jobs, use broad terms such as `Buchhaltung` or `CRM` without an `Intern` prefix.
 - Optional **local first-scan expansion** from an inspectable terminology map. A related term must appear in at least two distinct eligible JDs. At most ten additions, with evidence, used on the **next** scan. Deleted or renamed terms are blocked from automatic re-addition. No API key/cloud request.
 - Two lists: **待人工筛查** (manual screening) and **已排除** (excluded). Cards distinguish passed checks from evidence gaps. Human judgement is still required.
-- Manual rolling 24-hour scans; optional weekday 18:00 Europe/Berlin scans. Later scans default to unseen jobs. First discovery is not publication time.
+- Manual rolling 24-hour scans; optional weekday searches at a user-selected time (default 18:00 Europe/Berlin). Scheduling runs locally without Codex, even with the browser closed. Later scans default to unseen jobs. First discovery is not publication time.
 - Stable batch-wide numbers. CSV exports **both complete lists**, including records hidden by “new only”, with the title `德国岗位雷达（只作为建议）` and a separate column-header row. Numbers match the dashboard.
 - Links open in the OS default browser. No automatic applications, bookmarks, Google Drive or spreadsheet sync.
 - Optional local PDF/DOCX extraction and OpenAI keyword drafting/feedback analysis. AI drafts require your confirmation, your own API key and may incur charges. A ChatGPT subscription is not an API key.
@@ -40,13 +40,19 @@ Run `launch.ps1` in PowerShell to see startup errors; service errors appear in `
 
 ## Optional schedule
 
+In **搜索设置 → 自动搜索**, tick **开启自动搜索**, choose an HH:MM time, and click **保存自动搜索设置**. Both the source and packaged Windows app support this. Untick and save to disable; the chosen time is preserved. The default is 18:00, Monday–Friday, in Germany's timezone rather than your PC's timezone.
+
+The command-line alternative preserves an existing selected time unless `-Time` is supplied:
+
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\schedule.ps1
+# Choose a different Berlin time:
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\schedule.ps1 -Time "17:35"
 # Disable without deleting history:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\schedule.ps1 -Remove
 ```
 
-The task runs as your logged-in Windows user and checks hourly; the app gates scans to weekdays after 18:00 Berlin time, including daylight-saving changes. While open, the app checks every 30 seconds. The lock/completed-batch record prevents duplicate work. Launching after a missed scheduled scan can catch up. Power-off, signed-out users and offline networks cannot fetch jobs. Removing the task also disables automatic scanning inside the app.
+Windows Task Scheduler runs as your logged-in user and wakes at the selected minute of each hour; the app gates scans to weekdays after the chosen Berlin time, including daylight-saving changes. While running, the app checks every 30 seconds. No Codex or ChatGPT session is needed. The lock/completed-batch record prevents duplicate scans on the same day, even after changing the time. Manual daytime scans do not cancel the scheduled scan. Saving an already-past time or launching after a missed scan can catch up for the current workday. Power-off, signed-out users and offline networks cannot fetch jobs. Removing the task also disables automatic scanning inside the app.
 
 ## Sources and accuracy
 

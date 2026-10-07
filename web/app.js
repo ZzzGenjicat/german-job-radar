@@ -2,6 +2,7 @@
 let state=null, currentView='review', limit=15, renderId='', busy=false;
 let onlyNew=true,preferenceLoaded=false;
 let feedbackContext=null,feedbackDraft=null;
+let scheduleDirty=false,scheduleSaving=false;
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const safe=v=>{try{const u=new URL(v);return ['http:','https:'].includes(u.protocol)?esc(u.href):'#';}catch{return '#';}};
@@ -47,7 +48,8 @@ function showJobs(){
 
 function showHeader(){
   const snap=state.snapshot,attempt=state.latest_attempt,today=isoDay(state.now);
-  const hour=Number(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Berlin',hour:'2-digit',hourCycle:'h23'}).format(new Date(state.now)));
+  const scheduleTime=state.schedule?.time||'18:00';
+  const clock=new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Berlin',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(state.now));
   const scanning=attempt?.status==='running';
   $('refresh').disabled=scanning||busy;
   $('refresh').innerHTML=`<span class="refresh-icon">↻</span> ${scanning?'正在抓取与核验…':'抓取截至现在的近24小时新岗'}`;
@@ -60,12 +62,12 @@ function showHeader(){
       heading='手动抓取的最新岗位';note=`近24小时窗口截至 ${date(snap.stats?.window_end||snap.started,true)} · 采集完成于 ${date(snap.finished,true)}`;
     }else if(state.mode==='initial'){
       heading='首次采集的岗位';note=`实际采集于 ${date(snap.finished,true)}，没有可回溯的昨日批次。`;
-      notice='这是安装后的首次采集，不是昨天的历史数据。今后按德国工作日 18:00 保存并切换批次。';
+      notice=`这是安装后的首次采集，不是昨天的历史数据。批次按德国工作日 ${scheduleTime} 切换。`;
     }else if(day===today){heading='今天的岗位';note=`${day} 批次 · 完成于 ${date(snap.finished,true)} · 检查此前24小时的新发布职位`;}
     else{
       const yesterday=new Date(`${today}T12:00:00Z`);yesterday.setUTCDate(yesterday.getUTCDate()-1);
       heading=day===yesterday.toISOString().slice(0,10)?'这是昨天的岗位':`${day} 的岗位`;
-      note=`${hour<18?'尚未到今天18:00，':'今日批次尚未完成，'}展示最近的工作日扫描结果 · ${date(snap.finished,true)}`;
+      note=`${clock<scheduleTime?`尚未到今天${scheduleTime}，`:'今日批次尚未完成，'}展示最近的工作日扫描结果 · ${date(snap.finished,true)}`;
       if(state.stale)notice=`期望批次为 ${state.target_date}，当前仍显示 ${day} 的结果。旧数据不会被标成今天。`;
     }
     if(snap.status==='partial')notice+=(notice?' ':'')+'本轮部分来源或详情读取失败，已标明覆盖缺口。';
@@ -74,12 +76,17 @@ function showHeader(){
   $('headline').textContent=heading;$('date-note').textContent=note;
   $('edition-tag').textContent=`${today} · 德国时间 ${new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Berlin',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(state.now))}`;
   $('notice').hidden=!notice;$('notice').textContent=notice;$('notice').classList.toggle('error',attempt?.status==='failed');
-  $('schedule-note').textContent=state.schedule?.installed?'已启用本机计划任务。周一至周五，德国时间 18:00 开始扫描。':'自动扫描未启用；可手动抓取，或按使用说明安装本机计划任务。';
+  $('schedule-heading').textContent=`工作日 ${scheduleTime}`;
+  $('schedule-detail').textContent=`${scheduleTime} 前默认展示最近批次；手动抓取后立即展示最新结果。开启定时后，${scheduleTime} 自动再扫，默认只看此前未出现的岗位。电脑关机或离线时无法采集。`;
+  $('schedule-note').textContent=state.schedule?.error|| (state.schedule?.installed?`已开启自动搜索：周一至周五，德国时间 ${scheduleTime}。由本机应用执行，无需 Codex。`:'自动搜索未开启；可在“搜索设置”中开启并修改时间，也可手动抓取。');
   $('quit-app').hidden=!state.desktop_packaged;
-  $('desktop-controls').hidden=!state.desktop_packaged;
-  $('enable-schedule').disabled=false;
-  $('enable-schedule').textContent=state.schedule?.installed?'更新自动扫描位置':'启用自动扫描';
-  $('disable-schedule').disabled=!state.schedule?.installed;
+  $('schedule-controls').hidden=!state.schedule_supported;
+  $('license-link').hidden=!state.desktop_packaged;
+  if(!scheduleDirty){$('schedule-enabled').checked=state.schedule?.installed===true;$('schedule-time').value=scheduleTime;}
+  $('save-schedule').disabled=scheduleSaving;
+  $('schedule-enabled').disabled=scheduleSaving;
+  $('schedule-time').disabled=scheduleSaving;
+  $('save-schedule').textContent=scheduleSaving?'正在保存…':'保存自动搜索设置';
   $('profile-summary').textContent=state.profile.themes.length?state.profile.themes.join(' · '):'按搜索关键词查找；不按优先方向排除';
   $('last-check').textContent=snap?`最后成功采集：${date(snap.finished,true)}`:'还没有成功采集记录';
 }
@@ -192,8 +199,8 @@ document.addEventListener('change',async e=>{
   const rid=e.target.dataset.ruleToggle;
   if(rid){const item=state.learned_rules.find(r=>r.id===rid);try{await post('/api/rules/update',{id:rid,rule:item.rule,enabled:e.target.checked});renderId='';await load();}catch(error){e.target.checked=!e.target.checked;toast(error.message);}}
 });
-for(const [id,enabled] of [['enable-schedule',true],['disable-schedule',false]]){
-  $(id).addEventListener('click',async()=>{const button=$(id);button.disabled=true;try{const result=await post('/api/desktop/schedule',{enabled});renderId='';await load();toast(result.message);}catch(error){toast(error.message);button.disabled=false;}});
-}
-$('quit-app').addEventListener('click',async()=>{if(!confirm('退出本机应用？已启用的18点计划任务仍会运行。'))return;try{const result=await post('/api/desktop/quit',{});clearInterval(pollTimer);$('headline').textContent='应用已退出';$('date-note').textContent='可关闭这个页面；下次双击 EXE 即可重新打开。';toast(result.message);}catch(error){toast(error.message);}});
+$('schedule-form').addEventListener('input',()=>{scheduleDirty=true;});
+$('schedule-form').addEventListener('change',()=>{scheduleDirty=true;});
+$('schedule-form').addEventListener('submit',async e=>{e.preventDefault();if(scheduleSaving)return;const enabled=$('schedule-enabled').checked,time=$('schedule-time').value;scheduleSaving=true;showHeader();try{const result=await post('/api/schedule',{enabled,time});scheduleDirty=false;await load();toast(result.message);}catch(error){toast(error.message);}finally{scheduleSaving=false;showHeader();}});
+$('quit-app').addEventListener('click',async()=>{if(!confirm('退出本机应用？已开启的自动搜索计划仍会运行。'))return;try{const result=await post('/api/desktop/quit',{});clearInterval(pollTimer);$('headline').textContent='应用已退出';$('date-note').textContent='可关闭这个页面；下次双击 EXE 即可重新打开。';toast(result.message);}catch(error){toast(error.message);}});
 load();const pollTimer=setInterval(load,5000);

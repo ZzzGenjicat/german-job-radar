@@ -29,6 +29,7 @@ from radar.ai import OpenAIClient
 from radar.export_csv import build_csv
 from radar.presentation import numbered_jobs
 from radar.runtime import FROZEN, INSTANCE_ID, app_port, credential_target
+from radar.scheduling import read_schedule, scan_time, validate_time
 
 PORT=app_port(os.environ)
 ORIGIN=f'http://127.0.0.1:{PORT}'
@@ -37,6 +38,7 @@ TOKEN=secrets.token_urlsafe(32)
 STOP=threading.Event()
 WORKER_GUARD=threading.Lock()
 ACTIVE_WORKERS=set()
+SCHEDULE_GUARD=threading.Lock()
 CREDENTIAL_TARGET=credential_target(INSTANCE_ID,FROZEN)
 
 
@@ -62,12 +64,10 @@ def custom_source(data):
 
 
 def due(now=None):
-    config=DATA/'schedule.json'
-    try:
-        if not config.exists() or json.loads(config.read_text(encoding='utf-8-sig')).get('installed') is not True:return False
-    except (ValueError,OSError):return False
+    config=read_schedule(DATA)
+    if not config['installed']:return False
     now=now or now_utc();local=now.astimezone(BERLIN)
-    if local.weekday()>=5 or local.hour<18:return False
+    if local.weekday()>=5 or local.time().replace(tzinfo=None)<scan_time(config['time']):return False
     store=Store(DB);view=store.view(now)
     if store.scheduled_today(local.date().isoformat()):return False
     attempt=view['latest_attempt']
@@ -132,8 +132,8 @@ class Handler(BaseHTTPRequestHandler):
             value['expansion']=store.expansion_settings()
             if value.get('snapshot'):value['snapshot']['jobs']=numbered_jobs(value['snapshot'].get('jobs',[]))
             value.update(token=TOKEN,sources=store.source_settings(),keywords=store.keywords(),profile=store.profile(),learned_rules=store.learned_rules(),openai=CredentialStore().status(CREDENTIAL_TARGET),cv=store.current_cv())
-            config=DATA/'schedule.json'
-            value['schedule']=json.loads(config.read_text(encoding='utf-8-sig')) if config.exists() else {'installed':False}
+            value['schedule']=read_schedule(DATA)
+            value['schedule_supported']=os.name=='nt'
             value['desktop_packaged']=FROZEN
             return self.respond(200,value)
         files={'/':('index.html','text/html; charset=utf-8'),'/app.js':('app.js','text/javascript; charset=utf-8'),'/style.css':('style.css','text/css; charset=utf-8'),'/favicon.svg':('favicon.svg','image/svg+xml')}
@@ -163,10 +163,10 @@ class Handler(BaseHTTPRequestHandler):
                     if previous.parent==(DATA/'cv').resolve() and previous.exists():previous.unlink()
                 return self.respond(200,store.current_cv())
             data=json.loads(raw) if raw else {}
-            if self.path=='/api/desktop/schedule':
-                if not FROZEN or set(data)!= {'enabled'} or type(data['enabled']) is not bool:raise ValueError('此操作只用于 Windows 下载版')
-                schedule_desktop(data['enabled'])
-                return self.respond(200,{'message':'18点自动扫描已启用' if data['enabled'] else '自动扫描已停用；历史保留'})
+            if self.path=='/api/schedule':
+                if not isinstance(data,dict) or set(data)!= {'enabled','time'} or type(data['enabled']) is not bool:raise ValueError('自动搜索设置字段无效')
+                configure_schedule(data['enabled'],data['time'])
+                return self.respond(200,{'schedule':read_schedule(DATA),'message':f"已保存：工作日德国时间 {data['time']} 自动搜索" if data['enabled'] else f"自动搜索已停用，时间 {data['time']} 已保存"})
             if self.path=='/api/desktop/quit':
                 if not FROZEN or data:raise ValueError('此操作只用于 Windows 下载版')
                 begin_shutdown()
@@ -321,12 +321,20 @@ def open_app(open_browser=True):
     if open_browser:webbrowser.open(ORIGIN)
 
 
-def schedule_desktop(enabled):
-    if not FROZEN or os.name!='nt':raise ValueError('此操作只用于 Windows 下载版')
+def configure_schedule(enabled,schedule_time):
+    validate_time(schedule_time)
+    if type(enabled) is not bool:raise ValueError('自动搜索开关无效')
+    if os.name!='nt':raise ValueError('自动搜索计划任务目前仅支持 Windows')
     command=[str(Path(os.environ['SystemRoot'])/'System32/WindowsPowerShell/v1.0/powershell.exe'),
-             '-NoProfile','-ExecutionPolicy','Bypass','-File',str(ROOT/'schedule.ps1'),'-Executable',sys.executable,'-DataDirectory',str(DATA)]
+             '-NoProfile','-ExecutionPolicy','Bypass','-File',str(ROOT/'schedule.ps1'),'-DataDirectory',str(DATA),'-Time',schedule_time]
+    if FROZEN:command.extend(['-Executable',sys.executable])
     if not enabled:command.append('-Remove')
-    try:result=subprocess.run(command,capture_output=True,timeout=30,creationflags=subprocess.CREATE_NO_WINDOW)
+    env=os.environ.copy();env['JOB_RADAR_PYTHON']=sys.executable
+    try:
+        # PowerShell's filesystem provider can misresolve a Unicode working
+        # directory reached through a Windows short-name TEMP alias. Use the
+        # known resource directory instead of inheriting the launch directory.
+        with SCHEDULE_GUARD:result=subprocess.run(command,cwd=ROOT,env=env,capture_output=True,timeout=30,creationflags=subprocess.CREATE_NO_WINDOW)
     except subprocess.TimeoutExpired:raise RuntimeError('更新计划任务超时，请稍后重试') from None
     if result.returncode:
         logging.error('Schedule update failed: %s',result.stderr.decode('utf-8',errors='replace'))
