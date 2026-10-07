@@ -2,14 +2,14 @@
 let state=null, currentView='review', limit=15, renderId='', busy=false;
 let onlyNew=true,preferenceLoaded=false;
 let feedbackContext=null,feedbackDraft=null;
-let scheduleDirty=false,scheduleSaving=false;
+let scheduleDirty=false,scheduleSaving=false,exportBusy=false;
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const safe=v=>{try{const u=new URL(v);return ['http:','https:'].includes(u.protocol)?esc(u.href):'#';}catch{return '#';}};
 const date=(value,withTime=false)=>value?new Intl.DateTimeFormat('zh-CN',{timeZone:'Europe/Berlin',month:'2-digit',day:'2-digit',...(withTime?{hour:'2-digit',minute:'2-digit',hour12:false}:{})}).format(new Date(value)):'未知';
 const isoDay=v=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(v));
 const labels={review:'待人工筛查',excluded:'已排除'};
-const notes={review:'所有候选合并在此；自动核验状态和缺口分别标在卡片内。请核对原文后决定是否申请。',excluded:'保留排除原因，便于核对筛选是否符合你的要求。'};
+const notes={review:'请核对卡片中的依据和岗位原文，再决定是否申请。',excluded:'查看排除原因，核对是否符合你的筛选要求。'};
 const group=j=>j.display_group||(j.classification==='excluded'?'excluded':'review');
 
 function card(j,number){
@@ -33,7 +33,7 @@ function card(j,number){
 
 function showJobs(){
   const all=state?.snapshot?.jobs||[],jobs=all.filter(j=>!onlyNew||j.is_new!==false);
-  $('delta-note').textContent=`本轮共 ${all.length} 个岗位，其中 ${all.filter(j=>j.is_new!==false).length} 个此前未出现；${all.filter(j=>j.is_new===false).length} 个已出现。${onlyNew?'当前只看新增。':'当前展示本轮全部。'}去重范围：本机采集历史。`;
+  $('delta-note').textContent=state?.snapshot?`本轮 ${all.length} 个 · 新增 ${all.filter(j=>j.is_new!==false).length} 个 · 已出现 ${all.filter(j=>j.is_new===false).length} 个。${onlyNew?'当前只看新增。':'当前显示全部。'}CSV 导出全部，标注“只作为建议”。`:'';
   for(const key of Object.keys(labels))$(`n-${key}`).textContent=jobs.filter(j=>group(j)===key).length;
   document.querySelectorAll('.tab').forEach(b=>{b.classList.toggle('active',b.dataset.view===currentView);b.setAttribute('aria-pressed',String(b.dataset.view===currentView));});
   $('view-note').textContent=notes[currentView];
@@ -41,7 +41,7 @@ function showJobs(){
   if(!list.length){
     const isScanning=state?.latest_attempt?.status==='running';
     const title=!state?.snapshot?(isScanning?'正在采集首批真实岗位':'先设置需求，再开始搜索'):`本批暂无${labels[currentView]}记录`;
-    const body='可取消“只显示此前没出现过的岗位”查看本轮全部，或调整关键词和搜索设置。来源状态及读取缺口记录在右侧和下方。';
+    const body=!state?.snapshot?'右侧初始关键词是示例，可替换为你的职业或技能，再开始搜索。':all.length&&onlyNew?'可取消“只看未出现过的岗位”查看本轮全部。':'可调整关键词或搜索设置；来源读取情况见右侧和检索记录。';
     $('jobs').innerHTML=`<div class="empty"><div class="empty-mark">◎</div><h3>${title}</h3><p>${body}</p></div>`;
   }else $('jobs').innerHTML=list.slice(0,limit).map((job,index)=>card(job,index+1)).join('')+(list.length>limit?`<button class="load-more" id="more">再显示 ${Math.min(15,list.length-limit)} 条 · 共 ${list.length} 条</button>`:'');
 }
@@ -52,10 +52,11 @@ function showHeader(){
   const clock=new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Berlin',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(state.now));
   const scanning=attempt?.status==='running';
   $('refresh').disabled=scanning||busy;
-  $('refresh').innerHTML=`<span class="refresh-icon">↻</span> ${scanning?'正在抓取与核验…':'抓取截至现在的近24小时新岗'}`;
+  $('refresh').innerHTML=`<span class="refresh-icon">↻</span> ${scanning?'正在搜索与核验…':'搜索近24小时新岗'}`;
+  $('export-csv').disabled=exportBusy||!snap?.jobs?.length;
   $('progress').hidden=!scanning;
   if(scanning){$('progress-label').textContent=attempt.progress||'正在扫描';$('progress-count').textContent=attempt.total?`${attempt.completed} / ${attempt.total}`:'';$('progress-bar').value=attempt.total?attempt.completed/attempt.total*100:2;}
-  let heading='尚无岗位批次',note='首次采集完成后显示真实结果。',notice='';
+  let heading='开始寻找德国岗位',note='先修改示例关键词和搜索设置，再开始首次搜索。',notice='';
   if(snap){
     const day=snap.edition_date;
     if(state.mode==='manual'){
@@ -77,8 +78,8 @@ function showHeader(){
   $('edition-tag').textContent=`${today} · 德国时间 ${new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Berlin',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(state.now))}`;
   $('notice').hidden=!notice;$('notice').textContent=notice;$('notice').classList.toggle('error',attempt?.status==='failed');
   $('schedule-heading').textContent=`工作日 ${scheduleTime}`;
-  $('schedule-detail').textContent=`${scheduleTime} 前默认展示最近批次；手动抓取后立即展示最新结果。开启定时后，${scheduleTime} 自动再扫，默认只看此前未出现的岗位。电脑关机或离线时无法采集。`;
-  $('schedule-note').textContent=state.schedule?.error|| (state.schedule?.installed?`已开启自动搜索：周一至周五，德国时间 ${scheduleTime}。由本机应用执行，无需 Codex。`:'自动搜索未开启；可在“搜索设置”中开启并修改时间，也可手动抓取。');
+  $('schedule-detail').textContent=state.schedule?.installed?'电脑需开机、联网并保持登录；关闭浏览器仍可执行。':'默认18:00，可在搜索设置中启用并修改。';
+  $('schedule-note').textContent=state.schedule?.error|| (state.schedule?.installed?`已开启：周一至周五，德国时间 ${scheduleTime}。`:'自动搜索未开启');
   $('quit-app').hidden=!state.desktop_packaged;
   $('schedule-controls').hidden=!state.schedule_supported;
   $('license-link').hidden=!state.desktop_packaged;
@@ -96,7 +97,7 @@ function showSources(){
   const snap=failed?state.latest_attempt:state.snapshot,queries=snap?.queries||[],stats=snap?.stats||{};
   $('audit-title').textContent=failed?'最新失败批次的检索记录（岗位保留上次结果）':'查看本轮检索记录';
   $('keywords').innerHTML=state.keywords.map(k=>`<div class="keyword-row"><label><input type="checkbox" data-keyword-toggle="${k.id}" ${k.enabled?'checked':''}> <span>${esc(k.term)}</span></label><span><button data-keyword-edit="${k.id}">编辑</button><button data-keyword-delete="${k.id}">删除</button></span></div>`).join('');
-  $('query-label').textContent=queries.length?`${queries.length} 次读取`:'计划使用的关键词';
+  $('query-label').textContent=`启用 ${state.keywords.filter(k=>k.enabled).length} 个`;
   $('source-count').textContent=snap?`${stats.source_ok||0} / ${stats.source_total||state.sources.length} 可读取`:'尚未实测';
   $('source-list').innerHTML=state.sources.map(s=>{
     const q=queries.filter(q=>q.source===s.name),good=q.filter(x=>x.status==='ok'),failed=q.filter(x=>x.status!=='ok');
@@ -131,7 +132,7 @@ function showSettings(){
   $('delete-openai-key').hidden=!state.openai?.configured;
   $('cv-status').innerHTML=state.cv?`<p><strong>${esc(state.cv.original_name)}</strong><br>已在本机提取 ${state.cv.chars} 个字符。</p>`:'<p>尚未上传简历。</p>';
   $('delete-cv').hidden=!state.cv;$('analyze-cv').disabled=!(state.cv&&state.openai?.configured);
-  $('learned-rule-settings').innerHTML=state.learned_rules.length?state.learned_rules.map(r=>`<div class="rule-row"><label><input type="checkbox" data-rule-toggle="${esc(r.id)}" ${r.enabled?'checked':''}> <span><strong>${esc(r.title)}</strong><small>${esc(r.rule.explanation)}</small></span></label><button data-rule-delete="${esc(r.id)}">删除</button></div>`).join(''):'<p>还没有学习规则。</p>';
+  $('learned-rule-settings').innerHTML=state.learned_rules.length?state.learned_rules.map(r=>`<div class="rule-row"><label><input type="checkbox" data-rule-toggle="${esc(r.id)}" ${r.enabled?'checked':''}> <span><strong>${esc(r.title)}</strong><small>${esc(r.rule.explanation)}</small></span></label><button data-rule-delete="${esc(r.id)}">删除</button></div>`).join(''):'<p>尚无规则。在岗位卡片点“不适合我”可分析并确认规则。</p>';
 }
 
 async function load(){
@@ -139,7 +140,6 @@ async function load(){
     const response=await fetch('/api/state');if(!response.ok)throw new Error('本机服务暂不可用');
     state=await response.json();showHeader();
     if(!preferenceLoaded){onlyNew=state.display?.only_new!==false;$('only-new').checked=onlyNew;preferenceLoaded=true;}
-    $('confirm-display').textContent=state.display?.confirmed?'保存显示规则':'确认此显示规则';
     const id=(state.snapshot?.id||'none')+'-'+(state.latest_attempt?.id||'none')+'-'+(state.latest_attempt?.status||'none')+'-'+JSON.stringify([state.keywords,state.sources,state.profile,state.expansion,state.learned_rules,state.cv,state.openai]);
     if(id!==renderId){renderId=id;showJobs();showSources();showSettings();}
   }catch(error){$('notice').hidden=false;$('notice').classList.add('error');$('notice').textContent='连接本机应用失败。请重新打开“德国岗位雷达”，已有数据仍保存在本机。';}
@@ -162,7 +162,7 @@ document.addEventListener('click',e=>{
   const del=e.target.closest('[data-keyword-delete]');
   if(del){const item=state.keywords.find(k=>k.id===Number(del.dataset.keywordDelete));if(confirm(`删除关键词“${item.term}”？`))post('/api/keywords/delete',{id:item.id}).then(()=>{renderId='';return load();}).catch(error=>toast(error.message));return;}
   const feedback=e.target.closest('[data-feedback]');
-  if(feedback){const job=state.snapshot.jobs.find(j=>j.key===feedback.dataset.feedback);feedbackContext={scan_id:state.snapshot.id,job_key:job.key,job};feedbackDraft=null;$('feedback-job').textContent=`${job.company} · ${job.title}`;$('feedback-note').value='';$('feedback-preview').hidden=true;$('feedback-preview').innerHTML='';$('accept-feedback').disabled=true;$('feedback-dialog').showModal();return;}
+  if(feedback){const job=state.snapshot.jobs.find(j=>j.key===feedback.dataset.feedback);feedbackContext={scan_id:state.snapshot.id,job_key:job.key,job};feedbackDraft=null;$('feedback-job').textContent=`${job.company} · ${job.title}`;$('feedback-note').value='';$('feedback-preview').hidden=true;$('feedback-preview').innerHTML='';$('accept-feedback').disabled=true;$('analyze-feedback').disabled=!state.openai?.configured;$('feedback-ai-note').textContent=state.openai?.configured?'点击分析会向 OpenAI 发送岗位内容、反馈、求职目标与现有规则，可能收费；不发送简历。确认后才生效。':'需先在搜索设置的“CV 与 AI 分析”中保存 OpenAI API Key；可能产生费用。';$('feedback-dialog').showModal();return;}
   const ruleDelete=e.target.closest('[data-rule-delete]');
   if(ruleDelete){if(confirm('删除这条 AI 学习规则？'))post('/api/rules/delete',{id:ruleDelete.dataset.ruleDelete}).then(()=>{renderId='';return load();}).catch(error=>toast(error.message));return;}
   const sourceTest=e.target.closest('[data-source-test]');
@@ -174,7 +174,7 @@ function toast(message){$('toast').textContent=message;$('toast').hidden=false;s
 async function post(path,data){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Radar-Token':state.token},body:JSON.stringify(data)});const result=await r.json();if(!r.ok)throw new Error(result.error||'操作失败');return result;}
 $('only-new').addEventListener('change',()=>{onlyNew=$('only-new').checked;limit=15;showJobs();});
 $('confirm-display').addEventListener('click',async()=>{try{await post('/api/display',{only_new:onlyNew});toast(onlyNew?'已确认：默认只显示此前未出现的岗位':'已确认：默认显示本轮全部岗位');await load();}catch(e){toast(e.message);}});
-$('export-csv').addEventListener('click',async()=>{const button=$('export-csv');button.disabled=true;try{const r=await fetch('/api/export.csv',{method:'POST',headers:{'Content-Type':'application/json','X-Radar-Token':state.token},body:JSON.stringify({})});if(!r.ok){const value=await r.json();throw new Error(value.error||'导出失败');}const blob=await r.blob(),link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`德国岗位-全部-${state.snapshot?.id||isoDay(state.now)}.csv`;document.body.appendChild(link);link.click();link.remove();URL.revokeObjectURL(link.href);toast('本轮两个列表全部导出，包含已出现岗位；CSV 标注为只作为建议');}catch(error){toast(error.message);}finally{button.disabled=false;}});
+$('export-csv').addEventListener('click',async()=>{if(exportBusy)return;const button=$('export-csv');exportBusy=true;button.disabled=true;try{const r=await fetch('/api/export.csv',{method:'POST',headers:{'Content-Type':'application/json','X-Radar-Token':state.token},body:JSON.stringify({})});if(!r.ok){const value=await r.json();throw new Error(value.error||'导出失败');}const blob=await r.blob(),link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`德国岗位-全部-${state.snapshot?.id||isoDay(state.now)}.csv`;document.body.appendChild(link);link.click();link.remove();URL.revokeObjectURL(link.href);toast('本轮两个列表全部导出，包含已出现岗位；CSV 标注为只作为建议');}catch(error){toast(error.message);}finally{exportBusy=false;button.disabled=!state.snapshot?.jobs?.length;}});
 $('auto-expand').addEventListener('change',async e=>{try{await post('/api/expansion',{enabled:e.target.checked});renderId='';await load();toast('首轮扩展开关已保存');}catch(error){e.target.checked=!e.target.checked;toast(error.message);}});
 $('open-settings').addEventListener('click',()=>{$('settings-dialog').showModal();});
 $('close-settings').addEventListener('click',()=>{$('settings-dialog').close();});

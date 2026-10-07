@@ -25,7 +25,7 @@ from radar.store import Store
 from radar.security import validate_external_url
 from radar.credentials import CredentialStore
 from radar.cv import save_and_extract_cv
-from radar.ai import OpenAIClient
+from radar.ai import OpenAIClient, FEEDBACK_CATEGORIES
 from radar.export_csv import build_csv
 from radar.presentation import numbered_jobs
 from radar.runtime import FROZEN, INSTANCE_ID, app_port, credential_target
@@ -250,8 +250,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.respond(200,{'added':added,'message':f'已添加 {len(added)} 个关键词'})
             if self.path=='/api/feedback/analyze':
                 if set(data)!= {'scan_id','job_key','category','note'}:raise ValueError('反馈字段无效')
-                categories={'work_mismatch','too_marketing','too_technical','sales_without_ai','qualification','hours','industry','other'}
-                if data['category'] not in categories or not isinstance(data['note'],str) or len(data['note'])>1000:raise ValueError('反馈原因无效')
+                if data['category'] not in FEEDBACK_CATEGORIES or not isinstance(data['note'],str) or len(data['note'])>1000:raise ValueError('反馈原因无效')
                 job=store.snapshot_job(data['scan_id'],data['job_key'])
                 profile_summary={'profile':store.profile()}
                 client=OpenAIClient(lambda:CredentialStore().get(CREDENTIAL_TARGET))

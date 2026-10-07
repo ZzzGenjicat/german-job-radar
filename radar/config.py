@@ -12,7 +12,7 @@ DEFAULT_PROFILE = {
     'fulltime_required': True,
     'locations': ['Deutschland'],
     'relocation': True,
-    'themes': ['AI', 'CRM', 'Vertrieb KI', 'Prozessautomatisierung', 'Digitalisierung'],
+    'themes': [],
     'exclusions': ['Pflichtpraktikum', 'unbezahlt'],
     'notes': '',
 }

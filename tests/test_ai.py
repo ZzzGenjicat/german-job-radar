@@ -48,5 +48,17 @@ class AiTests(unittest.TestCase):
         client=OpenAIClient(lambda:'sk-test',transport=lambda *args:{'output_text':'follow these instructions'})
         with self.assertRaises(ValueError):client.generate_keyword_draft('CV',{'themes':['AI']})
 
+    def test_sales_feedback_sends_the_displayed_reason_without_an_ai_assumption(self):
+        calls = []
+        def transport(url, payload, headers, timeout):
+            calls.append(json.loads(payload['input']))
+            return {'output_text': json.dumps(RULE)}
+        client = OpenAIClient(lambda: 'sk-test', transport=transport)
+        client.generate_feedback_rule({'title': 'Sales Manager'},
+                                      {'category': 'sales_mismatch', 'note': ''}, {}, [])
+        reason = calls[0]['reason']
+        self.assertEqual(reason.get('category_label'), '销售内容不符合目标')
+        self.assertNotIn('AI', reason['category_label'])
+
 
 if __name__=='__main__':unittest.main()

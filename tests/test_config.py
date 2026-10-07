@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 from radar.config import DEFAULT_PROFILE, validate_profile
@@ -23,6 +24,28 @@ class ConfigTests(unittest.TestCase):
         self.store.ensure_v2_configuration(('Praktikum KI', 'Praktikum CRM'), self.sources)
         self.assertEqual(['Praktikum KI', 'Praktikum CRM'], [x['term'] for x in self.store.keywords()])
         self.assertEqual(['ba', 'berlin'], [x['id'] for x in self.store.source_settings()])
+
+    def test_new_user_can_change_career_without_an_unseen_ai_filter(self):
+        from radar.core import evaluate
+        self.store.ensure_v2_configuration(('KI', 'CRM'), self.sources)
+        self.store.put_keyword('Buchhaltung')
+        for keyword in self.store.keywords():
+            if keyword['term'] != 'Buchhaltung':
+                self.store.update_keyword(keyword['id'], keyword['term'], False)
+        job = {'title': 'Buchhalter', 'description': 'Vollzeit. Finanzbuchhaltung.',
+               'employment': ['FULL_TIME'], 'posted': '2026-10-07',
+               'original_posted': '2026-10-07', 'apply_status': 'verified',
+               'search_terms': [k['term'] for k in self.store.keywords() if k['enabled']]}
+        result = evaluate(job, datetime.fromisoformat('2026-10-07T17:00:00+02:00'),
+                          profile=self.store.profile())
+        self.assertEqual(result['classification'], 'recommended', result['reasons'])
+
+    def test_reinitializing_preserves_a_users_explicit_theme_filter(self):
+        self.store.ensure_v2_configuration(('KI', 'CRM'), self.sources)
+        saved = {**self.store.profile(), 'themes': ['CRM'], 'notes': 'Customer operations'}
+        self.store.profile(saved)
+        self.store.ensure_v2_configuration(('KI', 'CRM'), self.sources)
+        self.assertEqual(self.store.profile(), saved)
 
     def test_keyword_crud_normalizes_and_rejects_duplicates(self):
         self.store.ensure_v2_configuration(('Praktikum KI',), self.sources)

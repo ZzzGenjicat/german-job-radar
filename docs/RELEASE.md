@@ -1,15 +1,12 @@
-v0.2.0：自动搜索时间可在应用里修改，无需 Codex。
+v0.2.1：发布前整理与首次使用改进。
 
-推荐下载 **GermanJobRadar-Windows-x64.zip**，解压后双击里面的 EXE；也可以单独下载 **GermanJobRadar-Windows-x64.exe**。
+下载 **GermanJobRadar-Windows-x64.zip**，解压后双击 EXE。适用于 Windows 10/11 x64，无需安装 Python。
 
-- 适用于 Windows 10/11 x64。
-- 首次打开不会自动扫描；先选择岗位类型和关键词。
-- 在“搜索设置 → 自动搜索”中启用、选择时间并保存；默认周一至周五德国时间18:00，自动适应夏令时。
-- 应用和 Windows 计划任务负责定时，关闭浏览器也能运行；电脑需开机、联网并保持 Windows 登录。
-- 手动抓取不取消当天定时；同一天已完成自动搜索后，改时间不会重复自动搜索。错过时间可补抓当天尚未完成的批次。
-- 源码版与下载版都可在设置页面管理定时。页面右上角可退出下载版应用。
-- 历史保存在用户自己的 LocalAppData 目录，更新 EXE 时保留。
-- 下载包包含 Python 和必要依赖，不包含个人数据、CV 或 API key。
-- 附 MIT、第三方许可和 SHA256 校验文件。EXE 尚未商业签名。
+- 精简界面和使用说明，修正设置页勾选框及表单排版。
+- 新安装默认不限 AI/CRM 方向，便于按自己的关键词搜索；保留已有用户的设置。
+- CV/AI 分析收进可展开区域，明确可选、API 费用与发送内容。
+- 没有岗位结果时不提供空 CSV 导出；清理已移除功能的旧样式。
 
-源码和中文使用说明仍在仓库中；其他系统暂无打包版。
+自动搜索仍可在应用中启用并修改，默认德国工作日18:00。数据保留在本机，更新时先退出应用再替换 EXE。当前 EXE 未签名。
+
+[中文使用说明](https://github.com/ZzzGenjicat/german-job-radar/blob/main/docs/USAGE.zh-CN.md) · [Windows 说明](https://github.com/ZzzGenjicat/german-job-radar/blob/main/docs/WINDOWS.md)
