@@ -3,6 +3,7 @@ let state=null, currentView='review', limit=15, renderId='', busy=false;
 let onlyNew=true,preferenceLoaded=false;
 let feedbackContext=null,feedbackDraft=null;
 let scheduleDirty=false,scheduleSaving=false,exportBusy=false;
+let settingsDirty=false,settingsSaving=false,settingsBase=null,inactiveKeywords=[],cvAnalyzing=false;
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const safe=v=>{try{const u=new URL(v);return ['http:','https:'].includes(u.protocol)?esc(u.href):'#';}catch{return '#';}};
@@ -41,7 +42,7 @@ function showJobs(){
   if(!list.length){
     const isScanning=state?.latest_attempt?.status==='running';
     const title=!state?.snapshot?(isScanning?'正在采集首批真实岗位':'先设置需求，再开始搜索'):`本批暂无${labels[currentView]}记录`;
-    const body=!state?.snapshot?'右侧初始关键词是示例，可替换为你的职业或技能，再开始搜索。':all.length&&onlyNew?'可取消“只看未出现过的岗位”查看本轮全部。':'可调整关键词或搜索设置；来源读取情况见右侧和检索记录。';
+    const body=!state?.snapshot?'在“搜索设置”填写你的职业或技能，然后点击“保存并搜索”。':all.length&&onlyNew?'可取消“只看未出现过的岗位”查看本轮全部。':'可调整关键词或搜索设置；来源读取情况见右侧和检索记录。';
     $('jobs').innerHTML=`<div class="empty"><div class="empty-mark">◎</div><h3>${title}</h3><p>${body}</p></div>`;
   }else $('jobs').innerHTML=list.slice(0,limit).map((job,index)=>card(job,index+1)).join('')+(list.length>limit?`<button class="load-more" id="more">再显示 ${Math.min(15,list.length-limit)} 条 · 共 ${list.length} 条</button>`:'');
 }
@@ -78,7 +79,7 @@ function showHeader(){
   $('edition-tag').textContent=`${today} · 德国时间 ${new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Berlin',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(state.now))}`;
   $('notice').hidden=!notice;$('notice').textContent=notice;$('notice').classList.toggle('error',attempt?.status==='failed');
   $('schedule-heading').textContent=`工作日 ${scheduleTime}`;
-  $('schedule-detail').textContent=state.schedule?.installed?'电脑需开机、联网并保持登录；关闭浏览器仍可执行。':'默认18:00，可在搜索设置中启用并修改。';
+  $('schedule-detail').textContent=state.schedule?.installed?'电脑需开机、联网并保持登录；关闭窗口仍可执行。':'默认18:00，可在搜索设置中启用并修改。';
   $('schedule-note').textContent=state.schedule?.error|| (state.schedule?.installed?`已开启：周一至周五，德国时间 ${scheduleTime}。`:'自动搜索未开启');
   $('quit-app').hidden=!state.desktop_packaged;
   $('schedule-controls').hidden=!state.schedule_supported;
@@ -88,7 +89,8 @@ function showHeader(){
   $('schedule-enabled').disabled=scheduleSaving;
   $('schedule-time').disabled=scheduleSaving;
   $('save-schedule').textContent=scheduleSaving?'正在保存…':'保存自动搜索设置';
-  $('profile-summary').textContent=state.profile.themes.length?state.profile.themes.join(' · '):'按搜索关键词查找；不按优先方向排除';
+  $('profile-summary').textContent=snap?'下方为已完成批次；修改设置后需重新搜索。':'在搜索设置中填写关键词和岗位类型。';
+  $('settings-applied-note').textContent=!snap?'保存后开始首次搜索。':snap.stats?.search_revision===state.search_revision?'本批次使用右侧已保存条件。':'搜索条件已更新或属于旧版批次；下方仍是上次结果，重新搜索后更新。';
   $('last-check').textContent=snap?`最后成功采集：${date(snap.finished,true)}`:'还没有成功采集记录';
 }
 
@@ -96,8 +98,8 @@ function showSources(){
   const failed=state.latest_attempt?.status==='failed';
   const snap=failed?state.latest_attempt:state.snapshot,queries=snap?.queries||[],stats=snap?.stats||{};
   $('audit-title').textContent=failed?'最新失败批次的检索记录（岗位保留上次结果）':'查看本轮检索记录';
-  $('keywords').innerHTML=state.keywords.map(k=>`<div class="keyword-row"><label><input type="checkbox" data-keyword-toggle="${k.id}" ${k.enabled?'checked':''}> <span>${esc(k.term)}</span></label><span><button data-keyword-edit="${k.id}">编辑</button><button data-keyword-delete="${k.id}">删除</button></span></div>`).join('');
-  $('query-label').textContent=`启用 ${state.keywords.filter(k=>k.enabled).length} 个`;
+  $('keywords').innerHTML=(state.effective_queries||[]).map(k=>`<span class="query-chip">${esc(k)}</span>`).join('');
+  $('query-label').textContent=`已保存 · ${state.effective_queries?.length||0} 个实际查询词 · ${state.sources.filter(s=>s.enabled).length} 个来源`;
   $('source-count').textContent=snap?`${stats.source_ok||0} / ${stats.source_total||state.sources.length} 可读取`:'尚未实测';
   $('source-list').innerHTML=state.sources.map(s=>{
     const q=queries.filter(q=>q.source===s.name),good=q.filter(x=>x.status==='ok'),failed=q.filter(x=>x.status!=='ok');
@@ -115,41 +117,69 @@ function showSources(){
 function showSettings(){
   const p=state.profile;
   const expansion=state.expansion||{enabled:true,status:'pending',added:[]};
-  $('auto-expand').checked=expansion.enabled;
   const summary=!expansion.enabled?'自动扩展已停用':expansion.status==='complete'?`首轮扩展已完成：新增 ${expansion.added.length} 个词，下次扫描使用。`:'首轮扩展等待至少两份候选 JD；当前按你启用的词搜索。';
   $('expansion-summary').textContent=summary;
   $('expansion-details').innerHTML=`<p>${esc(summary)}</p>`+expansion.added.map(k=>`<p><strong>${esc(k.term)}</strong><br>${esc(k.reason)}<br><small>原文依据：${esc(k.evidence)}<br>批次：${esc(expansion.run_id)} · 岗位标识：${k.job_keys.map(esc).join('、')}</small></p>`).join('');
+  if(!settingsDirty&&!settingsSaving){
+  settingsBase={revision:state.search_revision,profile:structuredClone(p)};
+  inactiveKeywords=state.keywords.filter(k=>!k.enabled).map(k=>({term:k.term,enabled:false}));
+  $('search-keywords').value=state.keywords.filter(k=>k.enabled).map(k=>k.term).join('\n');
+  renderInactiveKeywords();
+  $('auto-expand').checked=expansion.enabled;
   $('role-regular').checked=p.role_types.includes('regular');
   $('profile-fulltime').checked=p.fulltime_required;
   $('role-internship').checked=p.role_types.includes('internship');
   $('role-werkstudent').checked=p.role_types.includes('werkstudent_fulltime');
   $('profile-relocation').checked=p.relocation;
-  $('profile-themes').value=p.themes.join(', ');
   $('profile-exclusions').value=p.exclusions.join(', ');
   $('profile-notes').value=p.notes||'';
   $('source-settings').innerHTML=state.sources.map(s=>{const t=s.last_test;const tested=t?(t.status==='supported'?`测试通过 · ${t.result_count} 个搜索结果${t.detail_parsed?' · 详情可读':''}`:t.message):'尚未单独测试';return `<div class="setting-row"><span><strong>${esc(s.name)}</strong><small>${esc(tested)}</small></span><span><button type="button" data-source-test="${esc(s.id)}">测试</button><input aria-label="启用 ${esc(s.name)}" type="checkbox" data-source-toggle="${esc(s.id)}" ${s.enabled?'checked':''}></span></div>`;}).join('');
+  }
+  showSettingsStatus();
   $('openai-status').textContent=state.openai?.configured?'OpenAI 已连接；密钥保存在 Windows 凭据保险库。':'尚未保存 OpenAI API Key。';
   $('delete-openai-key').hidden=!state.openai?.configured;
   $('cv-status').innerHTML=state.cv?`<p><strong>${esc(state.cv.original_name)}</strong><br>已在本机提取 ${state.cv.chars} 个字符。</p>`:'<p>尚未上传简历。</p>';
-  $('delete-cv').hidden=!state.cv;$('analyze-cv').disabled=!(state.cv&&state.openai?.configured);
+  $('delete-cv').hidden=!state.cv;$('analyze-cv').disabled=cvAnalyzing||!(state.cv&&state.openai?.configured);
   $('learned-rule-settings').innerHTML=state.learned_rules.length?state.learned_rules.map(r=>`<div class="rule-row"><label><input type="checkbox" data-rule-toggle="${esc(r.id)}" ${r.enabled?'checked':''}> <span><strong>${esc(r.title)}</strong><small>${esc(r.rule.explanation)}</small></span></label><button data-rule-delete="${esc(r.id)}">删除</button></div>`).join(''):'<p>尚无规则。在岗位卡片点“不适合我”可分析并确认规则。</p>';
+}
+
+function renderInactiveKeywords(){
+  $('inactive-keywords-panel').hidden=!inactiveKeywords.length;
+  $('inactive-keywords').innerHTML=inactiveKeywords.map((k,i)=>`<div class="setting-row"><span>${esc(k.term)}</span><span><button type="button" data-restore-keyword="${i}">恢复</button><button type="button" data-remove-keyword="${i}">删除</button></span></div>`).join('');
+}
+function showSettingsStatus(){
+  const conflict=settingsBase&&settingsBase.revision!==state.search_revision;
+  $('settings-save-note').textContent=settingsSaving?'正在保存…':conflict?'后台或其他窗口已更新搜索条件。你的编辑仍保留；请重新载入后再修改。':settingsDirty?'有未保存的修改。':'设置已保存；下次搜索使用这些条件。';
+  $('reload-settings').hidden=!conflict;
+  $('search-fields').disabled=settingsSaving;
+  $('save-search').disabled=settingsSaving||conflict;
+  $('save-search-run').disabled=settingsSaving||conflict||state.latest_attempt?.status==='running';
+  const applyDraft=$('apply-ai-keywords')?.querySelector('button');if(applyDraft)applyDraft.disabled=settingsSaving;
+}
+function markSettingsDirty(){settingsDirty=true;showSettingsStatus();}
+function openSettings(){if(!state)return;showSettings();$('settings-dialog').showModal();}
+function closeSettings(){
+  if(settingsSaving||scheduleSaving)return;
+  if((settingsDirty||scheduleDirty)&&!confirm('放弃尚未保存的修改？'))return;
+  settingsDirty=false;scheduleDirty=false;showSettings();showHeader();$('settings-dialog').close();
 }
 
 async function load(){
   try{
     const response=await fetch('/api/state');if(!response.ok)throw new Error('本机服务暂不可用');
-    state=await response.json();showHeader();
+    state=await response.json();showHeader();if(settingsBase)showSettingsStatus();
     if(!preferenceLoaded){onlyNew=state.display?.only_new!==false;$('only-new').checked=onlyNew;preferenceLoaded=true;}
     const id=(state.snapshot?.id||'none')+'-'+(state.latest_attempt?.id||'none')+'-'+(state.latest_attempt?.status||'none')+'-'+JSON.stringify([state.keywords,state.sources,state.profile,state.expansion,state.learned_rules,state.cv,state.openai]);
     if(id!==renderId){renderId=id;showJobs();showSources();showSettings();}
   }catch(error){$('notice').hidden=false;$('notice').classList.add('error');$('notice').textContent='连接本机应用失败。请重新打开“德国岗位雷达”，已有数据仍保存在本机。';}
 }
 
-$('refresh').addEventListener('click',async()=>{
+async function startScan(){
   if(!state||busy)return;busy=true;showHeader();
-  try{const r=await fetch('/api/scan',{method:'POST',headers:{'X-Radar-Token':state.token}});if(!r.ok)throw new Error('无法启动扫描');await new Promise(resolve=>setTimeout(resolve,500));await load();}
+  try{await post('/api/scan',{});await new Promise(resolve=>setTimeout(resolve,500));await load();}
   catch(e){$('notice').hidden=false;$('notice').textContent=e.message;}finally{busy=false;showHeader();}
-});
+}
+$('refresh').addEventListener('click',startScan);
 document.addEventListener('click',e=>{
   const external=e.target.closest('[data-external-url]');
   if(external){e.preventDefault();post('/api/open-external',{url:external.dataset.externalUrl}).catch(error=>toast(error.message));return;}
@@ -157,10 +187,8 @@ document.addEventListener('click',e=>{
   if(tab){currentView=tab.dataset.view||tab.dataset.switch;limit=15;showJobs();return;}
   const button=e.target.closest('[data-evidence]');
   if(button){const panel=$('evidence-'+button.dataset.evidence);panel.hidden=!panel.hidden;button.setAttribute('aria-expanded',String(!panel.hidden));button.textContent=panel.hidden?'查看依据与原文 ＋':'收起核验依据 −';return;}
-  const edit=e.target.closest('[data-keyword-edit]');
-  if(edit){const item=state.keywords.find(k=>k.id===Number(edit.dataset.keywordEdit));const term=prompt('编辑搜索关键词',item.term);if(term&&term.trim()!==item.term)post('/api/keywords/update',{id:item.id,term:term.trim(),enabled:item.enabled}).then(()=>{renderId='';return load();}).catch(error=>toast(error.message));return;}
-  const del=e.target.closest('[data-keyword-delete]');
-  if(del){const item=state.keywords.find(k=>k.id===Number(del.dataset.keywordDelete));if(confirm(`删除关键词“${item.term}”？`))post('/api/keywords/delete',{id:item.id}).then(()=>{renderId='';return load();}).catch(error=>toast(error.message));return;}
+  const wordAction=e.target.closest('[data-restore-keyword],[data-remove-keyword]');
+  if(wordAction){const restore=wordAction.dataset.restoreKeyword;const index=Number(restore??wordAction.dataset.removeKeyword);if(restore!==undefined)$('search-keywords').value+=`\n${inactiveKeywords[index].term}`;inactiveKeywords.splice(index,1);renderInactiveKeywords();markSettingsDirty();return;}
   const feedback=e.target.closest('[data-feedback]');
   if(feedback){const job=state.snapshot.jobs.find(j=>j.key===feedback.dataset.feedback);feedbackContext={scan_id:state.snapshot.id,job_key:job.key,job};feedbackDraft=null;$('feedback-job').textContent=`${job.company} · ${job.title}`;$('feedback-note').value='';$('feedback-preview').hidden=true;$('feedback-preview').innerHTML='';$('accept-feedback').disabled=true;$('analyze-feedback').disabled=!state.openai?.configured;$('feedback-ai-note').textContent=state.openai?.configured?'点击分析会向 OpenAI 发送岗位内容、反馈、求职目标与现有规则，可能收费；不发送简历。确认后才生效。':'需先在搜索设置的“CV 与 AI 分析”中保存 OpenAI API Key；可能产生费用。';$('feedback-dialog').showModal();return;}
   const ruleDelete=e.target.closest('[data-rule-delete]');
@@ -175,32 +203,48 @@ async function post(path,data){const r=await fetch(path,{method:'POST',headers:{
 $('only-new').addEventListener('change',()=>{onlyNew=$('only-new').checked;limit=15;showJobs();});
 $('confirm-display').addEventListener('click',async()=>{try{await post('/api/display',{only_new:onlyNew});toast(onlyNew?'已确认：默认只显示此前未出现的岗位':'已确认：默认显示本轮全部岗位');await load();}catch(e){toast(e.message);}});
 $('export-csv').addEventListener('click',async()=>{if(exportBusy)return;const button=$('export-csv');exportBusy=true;button.disabled=true;try{const r=await fetch('/api/export.csv',{method:'POST',headers:{'Content-Type':'application/json','X-Radar-Token':state.token},body:JSON.stringify({})});if(!r.ok){const value=await r.json();throw new Error(value.error||'导出失败');}const blob=await r.blob(),link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`德国岗位-全部-${state.snapshot?.id||isoDay(state.now)}.csv`;document.body.appendChild(link);link.click();link.remove();URL.revokeObjectURL(link.href);toast('本轮两个列表全部导出，包含已出现岗位；CSV 标注为只作为建议');}catch(error){toast(error.message);}finally{exportBusy=false;button.disabled=!state.snapshot?.jobs?.length;}});
-$('auto-expand').addEventListener('change',async e=>{try{await post('/api/expansion',{enabled:e.target.checked});renderId='';await load();toast('首轮扩展开关已保存');}catch(error){e.target.checked=!e.target.checked;toast(error.message);}});
-$('open-settings').addEventListener('click',()=>{$('settings-dialog').showModal();});
-$('close-settings').addEventListener('click',()=>{$('settings-dialog').close();});
-$('keyword-form').addEventListener('submit',async e=>{e.preventDefault();const input=$('new-keyword');try{await post('/api/keywords',{term:input.value,enabled:true});input.value='';renderId='';await load();toast('关键词已添加，下次扫描生效');}catch(error){toast(error.message);}});
-$('profile-form').addEventListener('submit',async e=>{e.preventDefault();const role_types=[];if($('role-regular').checked)role_types.push('regular');if($('role-internship').checked)role_types.push('internship');if($('role-werkstudent').checked)role_types.push('werkstudent_fulltime');const split=id=>$(id).value.split(/[,，]/).map(x=>x.trim()).filter(Boolean);try{await post('/api/profile',{role_types,fulltime_required:$('profile-fulltime').checked,locations:['Deutschland'],relocation:$('profile-relocation').checked,themes:split('profile-themes'),exclusions:split('profile-exclusions'),notes:$('profile-notes').value});renderId='';await load();toast('求职目标已保存；请同步调整关键词中的 Praktikum 或 Intern 限定');}catch(error){toast(error.message);}});
-$('custom-source-form').addEventListener('submit',async e=>{e.preventDefault();const button=e.target.querySelector('button');button.disabled=true;button.textContent='正在实际读取…';$('custom-source-result').textContent='正在测试搜索页和岗位详情。';try{const source=await post('/api/sources/custom',{name:$('custom-source-name').value,url:$('custom-source-url').value});e.target.reset();$('custom-source-result').textContent=`已添加 ${source.name}，下次扫描生效。`;renderId='';await load();}catch(error){$('custom-source-result').textContent=error.message;toast(error.message);}finally{button.disabled=false;button.textContent='测试并添加网址';}});
+$('open-settings').addEventListener('click',openSettings);
+$('edit-search').addEventListener('click',openSettings);
+$('close-settings').addEventListener('click',closeSettings);
+$('settings-dialog').addEventListener('cancel',e=>{e.preventDefault();closeSettings();});
+$('reload-settings').addEventListener('click',()=>{if(settingsDirty&&!confirm('放弃当前编辑，重新载入已保存设置？'))return;settingsDirty=false;showSettings();});
+$('profile-form').addEventListener('input',markSettingsDirty);
+$('profile-form').addEventListener('change',markSettingsDirty);
+$('profile-form').addEventListener('submit',async e=>{
+  e.preventDefault();if(settingsSaving)return;
+  const run=e.submitter?.value==='scan',role_types=[];
+  if($('role-regular').checked)role_types.push('regular');
+  if($('role-internship').checked)role_types.push('internship');
+  if($('role-werkstudent').checked)role_types.push('werkstudent_fulltime');
+  const split=id=>$(id).value.split(/[,，\n]/).map(x=>x.trim()).filter(Boolean);
+  const words=[...new Map(split('search-keywords').map(term=>[term.toLocaleLowerCase(),term])).values()];
+  const active=new Set(words.map(w=>w.toLocaleLowerCase()));
+  const keywords=[...words.map(term=>({term,enabled:true})),...inactiveKeywords.filter(k=>!active.has(k.term.toLocaleLowerCase()))];
+  const profile={...settingsBase.profile,role_types,fulltime_required:$('profile-fulltime').checked,relocation:$('profile-relocation').checked,themes:[],exclusions:split('profile-exclusions'),notes:$('profile-notes').value};
+  const source_ids=[...$('source-settings').querySelectorAll('input:checked')].map(el=>el.dataset.sourceToggle);
+  settingsSaving=true;showSettingsStatus();
+  try{await post('/api/search-settings',{revision:settingsBase.revision,profile,keywords,source_ids,expansion_enabled:$('auto-expand').checked});settingsDirty=false;settingsSaving=false;renderId='';await load();toast('搜索条件已保存，下次搜索生效');if(run){$('settings-dialog').close();await startScan();}}
+  catch(error){toast(error.message);await load();}
+  finally{settingsSaving=false;showSettingsStatus();}
+});
+$('custom-source-form').addEventListener('submit',async e=>{e.preventDefault();if(settingsDirty||settingsSaving){toast('请先保存搜索条件，再添加网址');return;}const button=e.target.querySelector('button');button.disabled=true;button.textContent='正在实际读取…';$('custom-source-result').textContent='正在测试搜索页和岗位详情。';try{const source=await post('/api/sources/custom',{name:$('custom-source-name').value,url:$('custom-source-url').value});e.target.reset();$('custom-source-result').textContent=`已添加 ${source.name}，下次扫描生效。`;renderId='';await load();}catch(error){$('custom-source-result').textContent=error.message;toast(error.message);}finally{button.disabled=false;button.textContent='测试并添加网址';}});
 $('openai-form').addEventListener('submit',async e=>{e.preventDefault();const input=$('openai-key');try{await post('/api/openai/credential',{api_key:input.value});input.value='';renderId='';await load();toast('OpenAI 凭据已安全保存');}catch(error){toast(error.message);}});
 $('delete-openai-key').addEventListener('click',async()=>{if(!confirm('删除 Windows 凭据保险库中的 OpenAI API Key？'))return;try{await post('/api/openai/delete',{});renderId='';await load();toast('OpenAI 凭据已删除');}catch(error){toast(error.message);}});
 $('cv-upload-form').addEventListener('submit',async e=>{e.preventDefault();const file=$('cv-file').files[0];if(!file)return;const form=new FormData();form.append('file',file);try{const r=await fetch('/api/cv',{method:'POST',headers:{'X-Radar-Token':state.token},body:form});const result=await r.json();if(!r.ok)throw new Error(result.error||'上传失败');$('cv-file').value='';renderId='';await load();toast(`已在本机读取 ${result.chars} 个字符`);}catch(error){toast(error.message);}});
 $('delete-cv').addEventListener('click',async()=>{if(!confirm('删除本机保存的简历和提取文字？'))return;try{await post('/api/cv/delete',{});$('ai-draft').innerHTML='';renderId='';await load();toast('本机简历已删除');}catch(error){toast(error.message);}});
-$('analyze-cv').addEventListener('click',async()=>{const button=$('analyze-cv');button.disabled=true;button.textContent='AI 正在分析…';try{const draft=await post('/api/cv/analyze',{});$('ai-draft').innerHTML=`<h4>AI 建议的搜索词</h4><form id="apply-ai-keywords">${draft.keywords.map((k,i)=>`<label><input type="checkbox" name="keyword" value="${esc(k)}" checked> ${esc(k)}</label>`).join('')}<h4>简历已证明</h4><p>${draft.demonstrated_capabilities.map(esc).join('、')||'无'}</p><h4>加入前需要确认</h4><p>${draft.needs_confirmation.map(esc).join('、')||'无'}</p><button class="primary">加入选中的关键词</button></form>`;}catch(error){toast(error.message);}finally{button.disabled=false;button.textContent='用 AI 分析并生成关键词';}});
-document.addEventListener('submit',async e=>{if(e.target.id!=='apply-ai-keywords')return;e.preventDefault();const keywords=[...e.target.querySelectorAll('input[name=keyword]:checked')].map(x=>x.value);try{const result=await post('/api/cv/apply-keywords',{keywords});renderId='';await load();toast(result.message);}catch(error){toast(error.message);}});
+$('analyze-cv').addEventListener('click',async()=>{if(cvAnalyzing)return;if(settingsDirty){toast('请先保存搜索条件，AI 将根据已保存条件分析');return;}cvAnalyzing=true;const button=$('analyze-cv');button.disabled=true;button.textContent='AI 正在分析…';try{const draft=await post('/api/cv/analyze',{});$('ai-draft').innerHTML=`<h4>AI 建议的搜索词</h4><form id="apply-ai-keywords">${draft.keywords.map(k=>`<label><input type="checkbox" name="keyword" value="${esc(k)}" checked> ${esc(k)}</label>`).join('')}<h4>简历已证明</h4><p>${draft.demonstrated_capabilities.map(esc).join('、')||'无'}</p><h4>加入前需要确认</h4><p>${draft.needs_confirmation.map(esc).join('、')||'无'}</p><button class="primary">加入搜索设置草稿</button></form>`;}catch(error){toast(error.message);}finally{cvAnalyzing=false;button.disabled=!(state.cv&&state.openai?.configured);button.textContent='用 AI 分析并生成关键词';}});
+document.addEventListener('submit',e=>{if(e.target.id!=='apply-ai-keywords')return;e.preventDefault();if(settingsSaving){toast('正在保存，请完成后再加入建议');return;}const keywords=[...e.target.querySelectorAll('input[name=keyword]:checked')].map(x=>x.value);if(!keywords.length){toast('请先选择关键词');return;}$('search-keywords').value+='\n'+keywords.join('\n');markSettingsDirty();$('search-keywords').focus();$('search-keywords').scrollIntoView({block:'center'});toast('已加入草稿；检查后点击“保存设置”或“保存并搜索”');});
 $('close-feedback').addEventListener('click',()=>$('feedback-dialog').close());
 $('cancel-feedback').addEventListener('click',()=>$('feedback-dialog').close());
 $('feedback-form').addEventListener('submit',async e=>{e.preventDefault();if(!feedbackContext)return;const button=$('analyze-feedback');button.disabled=true;button.textContent='AI 正在分析…';try{feedbackDraft=await post('/api/feedback/analyze',{scan_id:feedbackContext.scan_id,job_key:feedbackContext.job_key,category:$('feedback-category').value,note:$('feedback-note').value});const r=feedbackDraft.rule;$('feedback-preview').innerHTML=`<h3>AI 对这次反馈的理解</h3><p><strong>${esc(r.title)}</strong></p><p>${esc(r.explanation)}</p><p>作用范围：${r.scope.map(esc).join('、')||'全部'}<br>不适合信号：${r.negative_any.map(esc).join('、')||'无'}<br>出现这些内容则保留：${r.keep_if_any.map(esc).join('、')||'无'}<br><strong>硬排除（优先于保留条件）：${r.hard_exclude_any.map(esc).join('、')||'无'}</strong></p><p class="privacy-note">本次发送岗位内容、你的原因、求职目标和现有规则，不发送简历文字。确认后才会保存并影响类似岗位。</p>`;$('feedback-preview').hidden=false;$('accept-feedback').disabled=false;}catch(error){toast(error.message);}finally{button.disabled=false;button.textContent='让 AI 分析这次反馈';}});
 $('accept-feedback').addEventListener('click',async()=>{if(!feedbackDraft)return;const button=$('accept-feedback');button.disabled=true;try{const result=await post('/api/feedback/accept',feedbackDraft);$('feedback-dialog').close();feedbackDraft=null;renderId='';await load();toast(result.message);}catch(error){toast(error.message);button.disabled=false;}});
 document.addEventListener('change',async e=>{
-  const kid=e.target.dataset.keywordToggle;
-  if(kid){const item=state.keywords.find(k=>k.id===Number(kid));try{await post('/api/keywords/update',{id:item.id,term:item.term,enabled:e.target.checked});renderId='';await load();}catch(error){e.target.checked=!e.target.checked;toast(error.message);}return;}
-  const sid=e.target.dataset.sourceToggle;
-  if(sid){try{await post('/api/sources/toggle',{id:sid,enabled:e.target.checked});renderId='';await load();}catch(error){e.target.checked=!e.target.checked;toast(error.message);}}
   const rid=e.target.dataset.ruleToggle;
   if(rid){const item=state.learned_rules.find(r=>r.id===rid);try{await post('/api/rules/update',{id:rid,rule:item.rule,enabled:e.target.checked});renderId='';await load();}catch(error){e.target.checked=!e.target.checked;toast(error.message);}}
 });
 $('schedule-form').addEventListener('input',()=>{scheduleDirty=true;});
 $('schedule-form').addEventListener('change',()=>{scheduleDirty=true;});
 $('schedule-form').addEventListener('submit',async e=>{e.preventDefault();if(scheduleSaving)return;const enabled=$('schedule-enabled').checked,time=$('schedule-time').value;scheduleSaving=true;showHeader();try{const result=await post('/api/schedule',{enabled,time});scheduleDirty=false;await load();toast(result.message);}catch(error){toast(error.message);}finally{scheduleSaving=false;showHeader();}});
-$('quit-app').addEventListener('click',async()=>{if(!confirm('退出本机应用？已开启的自动搜索计划仍会运行。'))return;try{const result=await post('/api/desktop/quit',{});clearInterval(pollTimer);$('headline').textContent='应用已退出';$('date-note').textContent='可关闭这个页面；下次双击 EXE 即可重新打开。';toast(result.message);}catch(error){toast(error.message);}});
+$('quit-app').addEventListener('click',async()=>{if(!confirm('退出本机应用？已开启的自动搜索计划仍会运行。'))return;try{const result=await post('/api/desktop/quit',{});clearInterval(pollTimer);$('headline').textContent='应用已退出';$('date-note').textContent='可以关闭此窗口；下次双击桌面图标即可重新打开。';toast(result.message);window.close();}catch(error){toast(error.message);}});
+window.addEventListener('beforeunload',e=>{if(settingsDirty||scheduleDirty){e.preventDefault();e.returnValue='';}});
 load();const pollTimer=setInterval(load,5000);

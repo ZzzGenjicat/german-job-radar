@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 import sqlite3
 import uuid
@@ -150,6 +151,85 @@ class Store:
         with self.connect() as db:
             return [dict(id=r['id'],term=r['term'],enabled=bool(r['enabled']),position=r['position'])
                     for r in db.execute('SELECT * FROM keywords ORDER BY position,id')]
+
+    @staticmethod
+    def _search_snapshot(db):
+        profile = json.loads(db.execute("SELECT value FROM settings WHERE name='profile_v2'").fetchone()[0])
+        keywords = [dict(id=r['id'], term=r['term'], enabled=bool(r['enabled']), position=r['position'])
+                    for r in db.execute('SELECT * FROM keywords ORDER BY position,id')]
+        sources = []
+        for row in db.execute('SELECT * FROM source_settings ORDER BY rowid'):
+            item = json.loads(row['payload'])
+            item.update(enabled=bool(row['enabled']), custom=bool(row['custom']),
+                        last_test=json.loads(row['last_test']) if row['last_test'] else None)
+            sources.append(item)
+        result = dict(profile=profile, keywords=keywords, sources=sources,
+                      expansion_enabled=Store._expansion_state(db)['enabled'])
+        revision_data = {**result, 'sources': [{k: v for k, v in s.items() if k != 'last_test'} for s in sources]}
+        result['revision'] = hashlib.sha256(json.dumps(revision_data, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        return result
+
+    def search_settings(self, value=None):
+        """Read or replace one coherent search configuration, without stale overwrites."""
+        from .config import normalize_term, validate_profile
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if not db.execute("SELECT 1 FROM settings WHERE name='search_settings_v4'").fetchone():
+                profile = json.loads(db.execute("SELECT value FROM settings WHERE name='profile_v2'").fetchone()[0])
+                themes = profile['themes']
+                db.execute("INSERT OR IGNORE INTO settings VALUES('legacy_themes_v4',?)", (json.dumps(themes, ensure_ascii=False),))
+                position = db.execute('SELECT COALESCE(MAX(position),-1)+1 FROM keywords').fetchone()[0]
+                for term in themes:
+                    # Preserve a deliberately disabled keyword, and never restore a deleted theme twice.
+                    term = normalize_term(term)
+                    db.execute('INSERT OR IGNORE INTO keywords(term,norm,enabled,position,created_at) VALUES(?,?,1,?,?)',
+                               (term, term.casefold(), position, now_utc().isoformat()))
+                    position += 1
+                profile['themes'] = []
+                db.execute("UPDATE settings SET value=? WHERE name='profile_v2'", (json.dumps(profile, ensure_ascii=False),))
+                db.execute("INSERT INTO settings VALUES('search_settings_v4','true')")
+            current = self._search_snapshot(db)
+            if value is None:
+                return current
+            if not isinstance(value, dict) or set(value) != {'revision', 'profile', 'keywords', 'source_ids', 'expansion_enabled'}:
+                raise ValueError('搜索设置字段无效')
+            if value['revision'] != current['revision']:
+                raise ValueError('搜索设置已在其他窗口或后台更新；请重新载入后再保存')
+            profile = validate_profile(value['profile'])
+            if profile['themes']:
+                raise ValueError('请将方向填写到关键词中')
+            words = value['keywords']
+            if not isinstance(words, list) or not 1 <= len(words) <= 100:
+                raise ValueError('请填写 1 至 100 个关键词')
+            normalized = []
+            for word in words:
+                if not isinstance(word, dict) or set(word) != {'term', 'enabled'} or type(word['enabled']) is not bool:
+                    raise ValueError('关键词格式无效')
+                normalized.append({'term': normalize_term(word['term']), 'enabled': word['enabled']})
+            norms = {w['term'].casefold() for w in normalized}
+            if len(norms) != len(normalized) or not any(w['enabled'] for w in normalized):
+                raise ValueError('关键词不能重复，且至少启用一个')
+            ids = value['source_ids']
+            known = {s['id'] for s in current['sources']}
+            if not isinstance(ids, list) or not ids or not all(isinstance(i, str) and i in known for i in ids) or len(set(ids)) != len(ids):
+                raise ValueError('请至少选择一个有效来源')
+            if type(value['expansion_enabled']) is not bool:
+                raise ValueError('自动扩展开关无效')
+            expansion = self._expansion_state(db)
+            removed = {w['term'].casefold() for w in current['keywords']} - norms
+            expansion['blocked'] = sorted(set(expansion['blocked']) | removed)
+            expansion['enabled'] = value['expansion_enabled']
+            for norm in removed:
+                db.execute('DELETE FROM keywords WHERE norm=?', (norm,))
+            for position, word in enumerate(normalized):
+                db.execute('INSERT INTO keywords(term,norm,enabled,position,created_at) VALUES(?,?,?,?,?) '
+                           'ON CONFLICT(norm) DO UPDATE SET term=excluded.term,enabled=excluded.enabled,position=excluded.position',
+                           (word['term'], word['term'].casefold(), int(word['enabled']), position, now_utc().isoformat()))
+            db.execute("UPDATE settings SET value=? WHERE name='profile_v2'", (json.dumps(profile, ensure_ascii=False),))
+            for source_id in known:
+                db.execute('UPDATE source_settings SET enabled=? WHERE id=?', (int(source_id in ids), source_id))
+            self._save_expansion(db, expansion)
+            return self._search_snapshot(db)
 
     @staticmethod
     def _expansion_state(db):

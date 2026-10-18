@@ -19,3 +19,4 @@ jobs:
         env:
           PYTHONUTF8: '1'
       - run: node --check web/app.js
+      - run: node tests/test_web_state.cjs

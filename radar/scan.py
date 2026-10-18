@@ -1,7 +1,6 @@
 """Bounded, rate-limited scans with query-level evidence and atomic snapshots."""
 import json
 import logging
-import re
 import threading
 import urllib.error
 from collections import Counter
@@ -11,7 +10,7 @@ from pathlib import Path
 from .core import BERLIN, now_utc, evaluate, merge_jobs
 from .sources import SOURCES, KEYWORDS, Fetcher, parse_search, parse_detail, query_url, check_application
 from .store import Store
-from .config import role_allowed
+from .config import role_allowed, effective_search_terms
 from .runtime import ROOT, DATA
 
 DB=DATA/'jobs.sqlite'
@@ -48,12 +47,13 @@ def run_scan(kind='manual',source_ids=None):
             return {'status':'skipped','reason':'already_completed_today'}
         run=store.start(started,kind)
         fetcher=Fetcher();queries=[];candidates=[];detail_errors=[];guard=threading.Lock()
-        configured_sources=[s for s in store.source_settings() if s['enabled']]
+        settings=store.search_settings()
+        configured_sources=[s for s in settings['sources'] if s['enabled']]
         sources=[s for s in configured_sources if not source_ids or s['id'] in source_ids]
-        keyword_snapshot=store.keywords()
-        keywords=[k['term'] for k in keyword_snapshot if k['enabled']]
+        keyword_snapshot=settings['keywords']
+        profile=settings['profile']
+        keywords=effective_search_terms(keyword_snapshot,profile)
         learned_rules=[r for r in store.learned_rules() if r['enabled']]
-        profile=store.profile()
         total=len(sources)*len(keywords);done=0;truncated=[]
         try:
             def search_source(source):
@@ -92,7 +92,7 @@ def run_scan(kind='manual',source_ids=None):
                     if failures>=2:
                         with guard:queries.append({'source':source['name'],'region':source.get('region',''),'status':'skipped','keyword':'后续关键词','count':0,'url':source['base'],'error':'连续两次读取失败，本轮停止该来源','at':now_utc().isoformat()})
                         break
-                rows=sorted(found.values(),key=lambda j:(j.get('posted') or '',bool(re.search(r'KI|CRM|AI|automatis|automation',j['title'],re.I))),reverse=True)
+                rows=sorted(found.values(),key=lambda j:(j.get('posted') or '',len(j.get('search_terms',[]))),reverse=True)
                 if len(rows)>DETAILS_PER_SOURCE:
                     with guard:truncated.append({'source':source['name'],'found':len(rows),'checked_limit':DETAILS_PER_SOURCE})
                 return rows[:DETAILS_PER_SOURCE]
@@ -138,6 +138,7 @@ def run_scan(kind='manual',source_ids=None):
             errors=[q for q in queries if q['status']!='ok']
             status='failed' if not good or (unique and not jobs) else 'partial' if errors or detail_errors else 'complete'
             stats={'source_ok':len(good),'source_total':len(sources),'query_count':len(queries),
+                   'search_revision':settings['revision'],'search_profile':profile,'effective_queries':keywords,
                    'raw_result_count':sum(q.get('count',0) for q in queries),'candidate_count':len(unique),
                    'detail_count':len(jobs),'dedup_count':len(jobs)-len(merged),'detail_errors':detail_errors,
                    'limited_queries':sum(bool(q.get('limited')) for q in queries),'source_limits':truncated,
@@ -151,7 +152,6 @@ def run_scan(kind='manual',source_ids=None):
                     expand_keywords(store,evaluated,run,profile=profile,keywords=keyword_snapshot)
                 except Exception:
                     logging.exception('Offline keyword expansion failed; completed scan preserved')
-            report=store.view(finished)
             summary={'run_id':run,'status':status,**{k:v for k,v in stats.items() if k not in ('detail_errors',)}}
             (DATA/'last-run-summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2),encoding='utf-8')
             return summary

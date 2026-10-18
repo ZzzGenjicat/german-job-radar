@@ -30,10 +30,13 @@ from radar.export_csv import build_csv
 from radar.presentation import numbered_jobs
 from radar.runtime import FROZEN, INSTANCE_ID, app_port, credential_target
 from radar.scheduling import read_schedule, scan_time, validate_time
+from radar.config import effective_search_terms
+from radar.desktop import open_desktop_window
 
 PORT=app_port(os.environ)
 ORIGIN=f'http://127.0.0.1:{PORT}'
 APP_ID='german-job-radar-local-v1'
+APP_VERSION='0.3.0'
 TOKEN=secrets.token_urlsafe(32)
 STOP=threading.Event()
 WORKER_GUARD=threading.Lock()
@@ -123,15 +126,17 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.valid_host():return self.respond(403,{'error':'仅允许本机访问'})
         path=urlsplit(self.path).path
-        if path=='/api/health':return self.respond(200,{'app':APP_ID,'instance':INSTANCE_ID,'pid':os.getpid()})
+        if path=='/api/health':return self.respond(200,{'app':APP_ID,'version':APP_VERSION,'instance':INSTANCE_ID,'pid':os.getpid()})
         if path=='/third-party-notices.txt' and FROZEN:
             return self.respond(200,(ROOT/'THIRD_PARTY_NOTICES.txt').read_bytes(),'text/plain; charset=utf-8')
         if path=='/api/state':
             store=Store(DB);store.ensure_v2_configuration(KEYWORDS,SOURCES)
+            settings=store.search_settings()
             value=store.view(now_utc());value.pop('sync_queue',None)
             value['expansion']=store.expansion_settings()
             if value.get('snapshot'):value['snapshot']['jobs']=numbered_jobs(value['snapshot'].get('jobs',[]))
-            value.update(token=TOKEN,sources=store.source_settings(),keywords=store.keywords(),profile=store.profile(),learned_rules=store.learned_rules(),openai=CredentialStore().status(CREDENTIAL_TARGET),cv=store.current_cv())
+            value.update(token=TOKEN,sources=settings['sources'],keywords=settings['keywords'],profile=settings['profile'],learned_rules=store.learned_rules(),openai=CredentialStore().status(CREDENTIAL_TARGET),cv=store.current_cv())
+            value.update(search_revision=settings['revision'],effective_queries=effective_search_terms(settings['keywords'],settings['profile']),version=APP_VERSION)
             value['schedule']=read_schedule(DATA)
             value['schedule_supported']=os.name=='nt'
             value['desktop_packaged']=FROZEN
@@ -146,7 +151,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(403,{'error':'请从应用页面发起更新'})
         try:
             size=int(self.headers.get('Content-Length','0'))
-            limit=9*1024*1024 if self.path=='/api/cv' else 16384
+            limit=9*1024*1024 if self.path=='/api/cv' else 65536 if self.path=='/api/search-settings' else 16384
             if size<0 or size>limit:return self.respond(413,{'error':'请求过大'})
             raw=self.rfile.read(size) if size else b''
             if self.path=='/api/cv':
@@ -186,22 +191,8 @@ class Handler(BaseHTTPRequestHandler):
                 jobs=numbered_jobs(snapshot.get('jobs',[]))
                 return self.respond(200,build_csv(jobs),'text/csv; charset=utf-8')
             store=Store(DB);store.ensure_v2_configuration(KEYWORDS,SOURCES)
-            if self.path=='/api/profile':
-                return self.respond(200,store.profile(data))
-            if self.path=='/api/expansion':
-                return self.respond(200,store.expansion_settings(data))
-            if self.path=='/api/keywords':
-                if set(data)!= {'term','enabled'}:raise ValueError('关键词字段无效')
-                return self.respond(200,store.put_keyword(data['term'],data['enabled']))
-            if self.path=='/api/keywords/update':
-                if set(data)!= {'id','term','enabled'}:raise ValueError('关键词字段无效')
-                return self.respond(200,store.update_keyword(data['id'],data['term'],data['enabled']))
-            if self.path=='/api/keywords/delete':
-                if set(data)!= {'id'}:raise ValueError('关键词字段无效')
-                store.delete_keyword(data['id']);return self.respond(200,{'message':'关键词已删除'})
-            if self.path=='/api/sources/toggle':
-                if set(data)!= {'id','enabled'}:raise ValueError('来源字段无效')
-                return self.respond(200,store.set_source_enabled(data['id'],data['enabled']))
+            if self.path=='/api/search-settings':
+                return self.respond(200,store.search_settings(data))
             if self.path=='/api/sources/test':
                 if set(data)=={'id'}:
                     source=next((s for s in store.source_settings() if s['id']==data['id']),None)
@@ -239,15 +230,6 @@ class Handler(BaseHTTPRequestHandler):
                 if not current:raise ValueError('请先上传简历')
                 client=OpenAIClient(lambda:CredentialStore().get(CREDENTIAL_TARGET))
                 return self.respond(200,client.generate_keyword_draft(current['text'],store.profile()))
-            if self.path=='/api/cv/apply-keywords':
-                if set(data)!= {'keywords'} or not isinstance(data['keywords'],list) or len(data['keywords'])>50:raise ValueError('关键词选择无效')
-                added=[]
-                existing={k['term'].casefold() for k in store.keywords()}
-                for term in data['keywords']:
-                    if not isinstance(term,str):raise ValueError('关键词选择无效')
-                    if term.strip().casefold() not in existing:
-                        added.append(store.put_keyword(term.strip()));existing.add(term.strip().casefold())
-                return self.respond(200,{'added':added,'message':f'已添加 {len(added)} 个关键词'})
             if self.path=='/api/feedback/analyze':
                 if set(data)!= {'scan_id','job_key','category','note'}:raise ValueError('反馈字段无效')
                 if data['category'] not in FEEDBACK_CATEGORIES or not isinstance(data['note'],str) or len(data['note'])>1000:raise ValueError('反馈原因无效')
@@ -294,7 +276,7 @@ def healthy():
     try:
         with urllib.request.urlopen(ORIGIN+'/api/health',timeout=1) as r:
             value=json.load(r)
-            return value.get('app')==APP_ID and value.get('instance')==INSTANCE_ID
+            return value.get('app')==APP_ID and value.get('instance')==INSTANCE_ID and value.get('version')==APP_VERSION
     except Exception:return False
 
 
@@ -317,7 +299,7 @@ def open_app(open_browser=True):
             if healthy():break
             time.sleep(.25)
         else:raise RuntimeError(f'本地服务未启动，请查看 {DATA / "app.log"}；端口 {PORT} 可能被另一安装占用，请先退出旧版本')
-    if open_browser:webbrowser.open(ORIGIN)
+    if open_browser:open_desktop_window(ORIGIN,DATA)
 
 
 def configure_schedule(enabled,schedule_time):

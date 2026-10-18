@@ -33,6 +33,28 @@ def role_kind(title):
 
 def role_allowed(title, profile):
     return role_kind(title) in profile['role_types']
+
+
+def effective_search_terms(keywords, profile):
+    """Build site queries from topics and the selected employment types."""
+    roles = profile['role_types']
+    prefixes = [''] if 'regular' in roles else [
+        prefix for role, prefix in (('internship', 'Praktikum'), ('werkstudent_fulltime', 'Werkstudent'))
+        if role in roles
+    ]
+    result, seen = [], set()
+    for word in keywords:
+        if not word['enabled']:
+            continue
+        term = word['term'].strip()
+        topic = re.sub(r'^(?:praktikum|praktikant(?:in)?|internship|intern|werkstudent(?:in)?|working student)\s+', '', term, flags=re.I)
+        for prefix in prefixes:
+            query = topic if not prefix or topic.casefold() == prefix.casefold() else f'{prefix} {topic}'
+            if query and query.casefold() not in seen:
+                seen.add(query.casefold())
+                result.append(query)
+    return result
+
 _CONTROL = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]')
 
 
@@ -46,7 +68,7 @@ def clean_text(value, *, minimum=0, maximum=2000):
 
 
 def normalize_term(value):
-    return clean_text(value, minimum=2, maximum=120)
+    return clean_text(value, minimum=1, maximum=120)
 
 
 def validate_profile(value):

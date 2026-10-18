@@ -22,10 +22,13 @@ class UiContractTests(unittest.TestCase):
     def test_settings_ui_wires_profile_keywords_and_sources(self):
         page=(ROOT/'web'/'index.html').read_text(encoding='utf-8')
         script=(ROOT/'web'/'app.js').read_text(encoding='utf-8')
-        for marker in ('settings-dialog','profile-form','keyword-form','source-settings'):
+        for marker in ('settings-dialog','profile-form','search-keywords','source-settings'):
             self.assertIn(marker,page)
+        self.assertIn("'/api/search-settings'",script)
+        self.assertNotIn('profile-themes', page)
+        self.assertNotIn('keyword-form', page)
         for endpoint in ("'/api/profile'","'/api/keywords'","'/api/keywords/update'","'/api/keywords/delete'","'/api/sources/toggle'"):
-            self.assertIn(endpoint,script)
+            self.assertNotIn(endpoint,script)
 
     def test_openai_ui_never_requests_the_saved_key(self):
         page=(ROOT/'web'/'index.html').read_text(encoding='utf-8')
@@ -41,7 +44,8 @@ class UiContractTests(unittest.TestCase):
         for marker in ('cv-upload-form','cv-file','analyze-cv','ai-draft'):
             self.assertIn(marker,page)
         self.assertIn("'/api/cv/analyze'",script)
-        self.assertIn("'/api/cv/apply-keywords'",script)
+        self.assertIn('加入搜索设置草稿',script)
+        self.assertNotIn("'/api/cv/apply-keywords'",script)
 
     def test_unsuitable_feedback_is_reviewed_before_acceptance(self):
         page=(ROOT/'web'/'index.html').read_text(encoding='utf-8')

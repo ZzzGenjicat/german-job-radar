@@ -91,7 +91,9 @@ def smoke(executable):
                 urllib.request.urlopen(urllib.request.Request(origin + '/api/desktop/quit', data=b'{}'), timeout=5)
             except urllib.error.HTTPError as error: assert error.code == 403
             else: raise AssertionError('Unauthenticated shutdown was accepted')
-            request('/api/keywords', {'term': 'SyntheticSmokeKeyword', 'enabled': True})
+            request('/api/search-settings', {'revision': state['search_revision'], 'profile': state['profile'],
+                    'keywords': [{'term': 'SyntheticSmokeKeyword', 'enabled': True}],
+                    'source_ids': [s['id'] for s in state['sources'] if s['enabled']], 'expansion_enabled': False})
             document = Document(); document.add_paragraph('Synthetic CRM Agent resume')
             stream = io.BytesIO(); document.save(stream)
             pdfstream = io.BytesIO(); pdf = canvas.Canvas(pdfstream)

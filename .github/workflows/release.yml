@@ -41,6 +41,7 @@ jobs:
         env:
           PYTHONUTF8: '1'
       - run: node --check web/app.js
+      - run: node tests/test_web_state.cjs
       - run: python tools/build_exe.py
       - run: python tools/smoke_exe.py dist/GermanJobRadar-Windows-x64.exe
         env:

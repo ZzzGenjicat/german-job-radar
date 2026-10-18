@@ -7,15 +7,15 @@ A local Windows app for finding jobs in Germany with your own keywords, reading 
 ## Download and start
 
 1. Download [GermanJobRadar-Windows-x64.zip](https://github.com/ZzzGenjicat/german-job-radar/releases/latest/download/GermanJobRadar-Windows-x64.zip).
-2. Extract the ZIP and double-click **GermanJobRadar-Windows-x64.exe**. Your default browser opens the local app.
-3. Replace the example keywords, choose job types in **搜索设置**, then click **搜索近24小时新岗**.
+2. Extract the ZIP and double-click **GermanJobRadar-Windows-x64.exe**. The app opens in its own window using installed Edge or Chrome.
+3. Enter keywords, choose job types and sources in **搜索设置**, then click **保存并搜索** (save and search).
 
 Windows 10/11 x64. No Python installation or administrator access is required. First launch does not search. The executable is unsigned. See [Windows instructions](docs/WINDOWS.md) for updates and troubleshooting.
 
 ## What it does
 
 - Search regular jobs, internships and working-student roles. Full-time is an optional filter. New installations have no fixed AI/CRM direction filter.
-- Edit, enable or remove keywords. For regular jobs, use terms such as `Buchhaltung` or `CRM`; an `Intern` prefix narrows the website's search to internships.
+- Save keywords, job types, sources and expansion settings together. Enter topics such as `Buchhaltung` or `CRM`; the selected job types control query prefixes. The dashboard shows the actual queries for the next scan. Changes do not relabel historical results.
 - Optionally expand keywords once using a local terminology map: a related term must appear in two distinct candidate JDs. At most ten additions, with evidence, take effect on the next scan. Deleted or renamed terms are not automatically restored. No API key is needed.
 - Review two lists: **待人工筛查** (manual screening) and **已排除** (excluded). Cards retain publication evidence, captured text and exclusion reasons. “New only” compares against this installation's history.
 - Export both complete lists to an Excel-friendly CSV, including jobs hidden by “new only”. Stable job numbers match the dashboard. The CSV is marked **只作为建议** (suggestions only).
@@ -25,7 +25,7 @@ Windows 10/11 x64. No Python installation or administrator access is required. F
 
 In **搜索设置 → 自动搜索**, enable scheduling, choose a time and save. The default is **18:00, Monday–Friday, Europe/Berlin**. The app and Windows Task Scheduler run it locally; no Codex or ChatGPT session is needed.
 
-The PC must be on, online and signed in. Closing the browser does not stop scheduling. Missed searches can catch up for the current workday; a completed automatic search is not repeated that day, even after changing the time. Daytime manual scans remain available. Keep the EXE at a fixed location, or save scheduling settings again after moving it.
+The PC must be on, online and signed in. Closing the app window does not stop scheduling. Missed searches can catch up for the current workday; a completed automatic search is not repeated that day, even after changing the time. Daytime manual scans remain available. Keep the EXE at a fixed location, or save scheduling settings again after moving it.
 
 ## Sources and limits
 
